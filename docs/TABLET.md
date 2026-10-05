@@ -41,6 +41,14 @@ browser's stillness detector, and saves power because frames are only sent when 
 The server remembers the last problem per X-Session and answers `same` for re-reads, so the display doesn't restart.
 Bluetooth LE instead of Wi-Fi would need a small bridge on the tablet; say if you want that.
 
+## 3b. See exactly what the wearer sees
+    python lite_server.py    ->   open  http://localhost:8000/glasses
+The camera is the "room" and only a 30-column, 3-line green display floats in the lower-right of the lens (black is
+transparent on a real additive display, so there is no box). Keys: space pause, up/down speed, r replay, t type a question,
+b dark backing, f show the display area, h hide help. No server? Double-click `docs/glasses-demo.html`: same view with
+sample problems (keys 1-9, 0). Simulation only: it can't show real optics, brightness or focus distance. Green on a bright
+white page has weak contrast on real see-through displays; a tinted lens or a dark backing helps.
+
 ## 4. Display behaviour
 - Teleprompter types the solution at ~40 characters/second and scrolls on its own. Space = pause, ↑/↓ = speed, R = replay, Esc = clear.
 - "Glasses view" (key `g`) shows exactly what a 30-column, 3-line display would show.

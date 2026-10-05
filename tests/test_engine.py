@@ -144,3 +144,9 @@ def test_http_blocks_path_traversal_and_enforces_access_code(monkeypatch, http_s
     body = json.dumps({"text": "Solve 2x + 3 = 11"})
     assert call(http_server, "POST", "/api/solve", body, {"Content-Type": "application/json"})[0] == 401
     assert call(http_server, "POST", "/api/solve", body, {"Content-Type": "application/json", "X-Access-Code": "sesame"})[0] == 200
+
+
+def test_glasses_page_is_served_and_built(http_server):
+    s, b = call(http_server, "GET", "/glasses")
+    assert s == 200 and b"Glasses view" in b and b"__SAMPLES__" not in b
+    assert b"Integral, substitution" in b          # demo samples are embedded, so the file also works without a server

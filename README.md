@@ -13,6 +13,8 @@ heads-up display: at most 90 characters, plain-text math.
     pip install sympy                      # + `pkg install tesseract` on Termux, or `pip install rapidocr-onnxruntime` on a PC
     python lite_server.py                  # http://localhost:8000: point the camera, hold still, it solves and scrolls the solution
 
+**Glasses-only view:** `http://localhost:8000/glasses` (or double-click `docs/glasses-demo.html`).
+
 **PC with model backends (hints/tutor mode, optional):** `pip install -r requirements.txt`, then
 `uvicorn server:app --port 8000` and open `/` (tutor page). Set `ANTHROPIC_API_KEY` or `OPENAI_BASE_URL` for a model;
 with neither, the same offline solver runs. `MOCK=1` serves canned demo data.

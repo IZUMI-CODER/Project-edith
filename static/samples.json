@@ -1,0 +1,162 @@
+[
+ {
+  "label": "Integral, substitution",
+  "shown": "∫ 2x·e^(x²) dx",
+  "ok": true,
+  "read_as": "∫ 2x·e^(x²) dx",
+  "subject": "Calculus",
+  "steps": [
+   "Evaluate ∫ 2x·e^(x²) dx",
+   "Substitution: let u = x².",
+   "Then du = 2x dx.",
+   "The integral becomes ∫ e^(u) du.",
+   "Integrate in u: e^(u) + C.",
+   "Back-substitute u = x².",
+   "Answer: e^(x²) + C"
+  ],
+  "verified": "pass"
+ },
+ {
+  "label": "Integral, by parts",
+  "shown": "∫ x·cos(x) dx",
+  "ok": true,
+  "read_as": "∫ x·cos(x) dx",
+  "subject": "Calculus",
+  "steps": [
+   "Evaluate ∫ x·cos(x) dx",
+   "Integration by parts: ∫u dv = u·v − ∫v du.",
+   "Let u = x, dv = cos(x) dx.",
+   "Then du = 1 dx, v = sin(x).",
+   "So the integral = x·sin(x) − ∫ sin(x) dx.",
+   "The remaining integral is -cos(x).",
+   "Answer: x·sin(x) + cos(x) + C"
+  ],
+  "verified": "pass"
+ },
+ {
+  "label": "Derivative, chain rule",
+  "shown": "d/dx [ sin(x³) ]",
+  "ok": true,
+  "read_as": "d/dx [ sin(x³) ]",
+  "subject": "Calculus",
+  "steps": [
+   "Differentiate d/dx [ sin(x³) ]",
+   "Chain rule. Outer function: sin(g), inner g = x³.",
+   "Outer derivative: d/dg sin(g) = cos(g).",
+   "Inner derivative: g' = 3x².",
+   "Multiply: cos(x³) · 3x².",
+   "Answer: 3x²cos(x³)"
+  ],
+  "verified": "pass"
+ },
+ {
+  "label": "Derivative, quotient rule",
+  "shown": "d/dx (x²+1)/(x−3)",
+  "ok": true,
+  "read_as": "d/dx [ (x² + 1)/(x - 3) ]",
+  "subject": "Calculus",
+  "steps": [
+   "Differentiate d/dx [ (x² + 1)/(x - 3) ]",
+   "Quotient rule: (u/v)' = (u'·v − u·v') / v².",
+   "u = x² + 1, v = x - 3.",
+   "u' = 2x, v' = 1.",
+   "Numerator: -x² + 2x·(x - 3) - 1, over (x - 3)².",
+   "Answer: 2x/(x - 3) - (x² + 1)/(x - 3)²"
+  ],
+  "verified": "pass"
+ },
+ {
+  "label": "Limit, 0/0",
+  "shown": "lim x→2  (x²−4)/(x−2)",
+  "ok": true,
+  "read_as": "lim x→2 of (x² - 4)/(x - 2)",
+  "subject": "Calculus",
+  "steps": [
+   "Evaluate lim x→2 of (x² - 4)/(x - 2)",
+   "Substituting x = 2 gives an indeterminate form, so simplify first.",
+   "Cancel common factors: x + 2.",
+   "Now substitute x = 2: 4.",
+   "Answer: 4"
+  ],
+  "verified": "pass"
+ },
+ {
+  "label": "Quadratic equation",
+  "shown": "Solve  x² − 5x + 6 = 0",
+  "ok": true,
+  "read_as": "Solve x² - 5x + 6 = 0",
+  "subject": "Algebra",
+  "steps": [
+   "Solve x² - 5x + 6 = 0",
+   "Standard form: x² - 5x + 6 = 0.",
+   "a = 1, b = -5, c = 6.",
+   "Discriminant D = b² − 4ac = 1.",
+   "D > 0: two real roots.",
+   "x = (−b ± √D) / 2a.",
+   "Answer: x = 2 or x = 3"
+  ],
+  "verified": "pass"
+ },
+ {
+  "label": "Electron configuration, exception",
+  "shown": "Write the electron configuration of Cr.",
+  "ok": true,
+  "read_as": "Electron configuration of Cr (Z = 24)",
+  "subject": "Chemistry",
+  "steps": [
+   "Electron configuration of Cr",
+   "Cr has Z = 24, so 24 electrons to place.",
+   "Aufbau fill order: 1s 2s 2p 3s 3p 4s 3d.",
+   "Fill in that order, max 2 e⁻ per orbital (s 2, p 6, d 10, f 14):",
+   "1s² 2s² 2p⁶ 3s² 3p⁶ 4s² 3d⁴",
+   "Exception: Cr is more stable with half-filled or full d/f subshells, so it is",
+   "1s² 2s² 2p⁶ 3s² 3p⁶ 4s¹ 3d⁵",
+   "Hund's rule: 4s [↑]  3d [↑][↑][↑][↑][↑]",
+   "Unpaired electrons: 6.",
+   "Noble-gas shorthand: [Ar] 4s¹ 3d⁵",
+   "Answer: Cr: [Ar] 4s¹ 3d⁵"
+  ],
+  "verified": "pass"
+ },
+ {
+  "label": "Electron configuration, ion",
+  "shown": "Write the electron configuration of Fe²⁺.",
+  "ok": true,
+  "read_as": "Electron configuration of Fe2+ (Z = 26)",
+  "subject": "Chemistry",
+  "steps": [
+   "Electron configuration of Fe2+",
+   "Fe has Z = 26, so 24 electrons to place.",
+   "Aufbau fill order: 1s 2s 2p 3s 3p 4s 3d.",
+   "Neutral atom: 1s² 2s² 2p⁶ 3s² 3p⁶ 4s² 3d⁶",
+   "Cation Fe2+: remove 2 e⁻ from the highest shell first (2 from 4s):",
+   "1s² 2s² 2p⁶ 3s² 3p⁶ 3d⁶",
+   "Hund's rule: 3d [↑↓][↑][↑][↑][↑]",
+   "Unpaired electrons: 4.",
+   "Noble-gas shorthand: [Ar] 3d⁶",
+   "Answer: Fe2+: [Ar] 3d⁶"
+  ],
+  "verified": "pass"
+ },
+ {
+  "label": "No elementary answer",
+  "shown": "∫ e^(x²) dx",
+  "ok": true,
+  "read_as": "∫ e^(x²) dx",
+  "subject": "Calculus",
+  "steps": [
+   "Evaluate ∫ e^(x²) dx",
+   "This integrand has no elementary antiderivative:",
+   "no combination of polynomials, e^x, logs and trig gives it.",
+   "In special functions: √(π)·erfi(x)/2 + C",
+   "Check the problem: is a factor missing (like 2x in front of e^(x²))?"
+  ],
+  "verified": "pass"
+ },
+ {
+  "label": "Word problem (not covered)",
+  "shown": "A ball is thrown at 20 m/s at 30° above the horizontal. Find the time of flight.",
+  "ok": false,
+  "reason": "this type of problem isn't covered offline yet (try a model backend, see docs/FREE.md)"
+ }
+]

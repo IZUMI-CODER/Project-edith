@@ -100,3 +100,16 @@ def test_numbering_and_punctuation_are_ignored(messy):
 
 def test_decimal_numbers_are_not_mangled():
     assert S("Solve 2.5x = 5")["final_answer"] == "x = 2"
+
+
+@pytest.mark.parametrize("ocr_text,answer", [
+    ("4){2xe~(x²)dx", "e^(x²) + C"),                                   # what the real OCR returned: no spaces, number glued to ∫
+    ("Worksheet7-Integration\n4){2xe~(x²)dx\nShowallworking.", "e^(x²) + C"),
+    ("∫2xe^(x²)dx", "e^(x²) + C"),
+    ("5) { x cos(x) dx", "x·sin(x) + cos(x) + C"),
+    ("limx→0sin(x)/x", "lim = 1"),
+    ("Solvex²-5x+6=0", "x = 2 or x = 3"),
+])
+def test_spaceless_ocr(ocr_text, answer):
+    r = offline.solve_text(offline.repair_ocr(ocr_text))
+    assert r["ok"] and r["final_answer"] == answer, r

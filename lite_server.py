@@ -8,6 +8,7 @@ Endpoints
     POST /api/solve   JSON {"text": "..."}        (typed problem, skips OCR)
     GET  /api/status  OCR backend + health
     GET  /            the auto-detect teleprompter page (static/)
+    GET  /glasses     what the wearer sees: the world + a 30x3 green display, nothing else
 No internet is used at any point. Set ACCESS_CODE=... to require the X-Access-Code header on /api/*.
 """
 import argparse
@@ -52,6 +53,8 @@ class Handler(BaseHTTPRequestHandler):
         path = urlparse(self.path).path
         if path == "/api/status":
             return self.send_json(200, {"engine": "offline", "ocr": offline.ocr_backend(), "needs_code": bool(ACCESS_CODE)})
+        if path in ("/glasses", "/glasses/"):
+            path = "/glasses.html"
         rel = "index.html" if path in ("/", "") else path.removeprefix("/static/").lstrip("/")
         f = (STATIC / rel).resolve()
         if STATIC.resolve() not in f.parents or not f.is_file():

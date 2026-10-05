@@ -185,11 +185,11 @@ async function scanFrame() {
   busy = false; mode("reading", false);
 }
 
-function handle(r) {
+function handle(r, manual = false) {
   lastStatus = r.status;
   if (r.status === "solved") { mode("solved", true); setStatus("solving", "ok"); showSolution(r); }
   else if (r.status === "same") { if (!tp.running && !app.classList.contains("on")) setStatus("scanning"); }
-  else if (r.status === "unsupported") { mode("solved", false); setStatus("can't solve this type yet", "warn"); }
+  else if (r.status === "unsupported") { mode("solved", false); setStatus(manual ? "can't solve this type yet" : "scanning", manual ? "warn" : ""); }
   else if (r.status === "nothing") { setStatus("scanning"); }
   else if (r.status === "busy") { /* previous frame still being read */ }
   else { setStatus(r.reason || "error", "bad"); }
@@ -260,10 +260,10 @@ function toggleGlasses() {
 $("glassesBtn").onclick = $("glassesBtn0").onclick = toggleGlasses;
 
 /* ---------------- manual input fallbacks ---------------- */
-async function typeProblem() { const t = prompt("Type or paste the problem:"); if (!t || !t.trim()) return; setStatus("solving", "ok"); const r = await sendText(t.trim()); handle(r); if (r.status === "unsupported") alert("Can't solve that offline yet: " + r.reason); }
+async function typeProblem() { const t = prompt("Type or paste the problem:"); if (!t || !t.trim()) return; setStatus("solving", "ok"); const r = await sendText(t.trim()); handle(r, true); if (r.status === "unsupported") alert("Can't solve that offline yet: " + r.reason); }
 $("typeBtn").onclick = $("typeBtn2").onclick = typeProblem;
 $("uploadBtn").onclick = () => $("file").click();
-$("file").onchange = async e => { const f = e.target.files[0]; e.target.value = ""; if (!f) return; setStatus("reading", "warn"); handle(await sendImage(f, true)); };
+$("file").onchange = async e => { const f = e.target.files[0]; e.target.value = ""; if (!f) return; setStatus("reading", "warn"); handle(await sendImage(f, true), true); };
 
 document.addEventListener("keydown", e => {
   if (e.key === " ") { e.preventDefault(); $("pauseBtn").click(); }

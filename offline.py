@@ -45,6 +45,7 @@ def to_sympy(s: str):
     s = s.replace("π", "pi")
     s = re.sub(r"√\s*(\w+|\([^()]*\))", r"sqrt(\1)", s)
     s = verify._norm(s)
+    s = re.sub(r"(?<=[0-9a-z)])e\^", "*e^", s)                              # OCR drops spaces: 2xe^(x²) -> 2x*e^(x²)
     s = re.sub(r"\be\^(\((?:[^()]|\([^()]*\))*\)|[A-Za-z0-9.]+)", r"exp(\1)", s)
     s = re.sub(r"\be\b", "E", s)
     s = s.replace("{", "(").replace("}", ")").replace("[", "(").replace("]", ")")
@@ -503,7 +504,7 @@ def solve_derivative(text: str) -> dict:
 
 
 def solve_limit(text: str) -> dict:
-    m = re.search(r"lim(?:it)?\s*[_{(]*\s*([a-z])\s*(?:→|->|to)\s*([-+]?[\w.]+|∞)\s*[)}]*\s*(?:of)?\s*(.+)$", text.strip(), re.I | re.S)
+    m = re.search(r"lim(?:it)?\s*[_{(]*\s*([a-z])\s*(?:→|->|to)\s*([-+]?(?:\d+(?:\.\d+)?|∞|oo|inf(?:inity)?)|[-+]?[a-z])\s*[)}]*\s*(?:of)?\s*(.+)$", text.strip(), re.I | re.S)
     if not m:
         raise Unsupported("couldn't parse the limit")
     var = sp.Symbol(m.group(1))
@@ -634,14 +635,14 @@ def solve(text: str) -> dict:
     lo = t.lower()
     if re.search(r"electron(?:ic)?\s+config|e-?\s*config|configuration of", lo):
         return solve_config(t)
-    if re.search(r"\blim\b|\blimit\b", lo):
+    if re.search(r"\blim(?:it)?\b|\blim(?:it)?\s*[_{(]*\s*[a-z]\s*(?:→|->|to\b)", lo):
         return solve_limit(t)
     if "∫" in t or re.search(r"\bintegra", lo) or (re.search(r"\bd[xyt]\s*$", t) and "=" not in t and not re.search(r"d\s*/\s*d", t)):
         return solve_integral(t)
     if re.search(r"d\s*/\s*d[a-z]|derivative|differentiate", lo):
         return solve_derivative(t)
     if "=" in t:
-        body = re.sub(r"^\s*(?:please\s+)?solve\b", "", t, flags=re.I)
+        body = re.sub(r"^\s*(?:please\s+)?solve", "", t, flags=re.I)
         words = [w for w in re.findall(r"[A-Za-z]{3,}", body) if w.lower() not in KNOWN_FUNCS]
         if words:
             raise Unsupported("word problems need a model backend (docs/FREE.md)")
@@ -679,7 +680,7 @@ def repair_ocr(text: str) -> str:
         t = line.strip().replace("~", "^")
         t = re.sub(r"(?<![A-Za-z])([xyzt])(\d+)(?![\d.])", r"\1^\2", t)      # x3 -> x^3 (lost superscript)
         if re.search(r"(?:\s|\))d[xyt]\s*$", t):
-            t = re.sub(r"^[{|JfSʃ/Il]\s*", "∫ ", t)                          # lost integral sign
+            t = re.sub(r"^(?:\(?\d{1,2}[.)]\s*)?[{|JfSʃ/Il]\s*", "∫ ", t)      # lost integral sign (maybe glued to a number)
         if t:
             out.append(t)
     return "\n".join(out)
