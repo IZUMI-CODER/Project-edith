@@ -8,7 +8,7 @@ S = offline.solve_safely
 
 @pytest.mark.parametrize("problem,answer", [
     ("∫ 2x·e^(x²) dx", "e^(x²) + C"),
-    ("∫ x e^x dx", "(x - 1)·e^(x) + C"),
+    ("∫ x e^x dx", "x·e^(x) - e^(x) + C"),
     ("integrate x^3 + 2x dx", "x⁴/4 + x² + C"),
     ("d/dx [ sin(x³) ]", "3x²cos(x³)"),
     ("lim x→0 of sin(x)/x", "lim = 1"),
@@ -91,3 +91,12 @@ def test_word_problem_message_is_clear():
     with pytest.raises(offline.Unsupported, match="word problems"):
         S("A car goes 60 km in 2 hours = what speed")
     assert S("solve sqrt(x) = 3")["final_answer"] == "x = 9"  # real maths with function names still works
+
+
+@pytest.mark.parametrize("messy", ["∫ 2x·e^(x²) dx.", "2. ∫ 2x·e^(x²) dx", "Q3: ∫ 2x·e^(x²) dx", "(a) ∫ 2x·e^(x²) dx;", "  ∫ 2x·e^(x²) dx  "])
+def test_numbering_and_punctuation_are_ignored(messy):
+    assert S(messy)["final_answer"] == "e^(x²) + C"
+
+
+def test_decimal_numbers_are_not_mangled():
+    assert S("Solve 2.5x = 5")["final_answer"] == "x = 2"

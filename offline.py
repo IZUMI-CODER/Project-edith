@@ -64,10 +64,11 @@ def strip_outer(s: str) -> str:
     return s
 
 
-def pack(read_as, subject, concepts, hints, final, check, note=""):
+def pack(read_as, subject, concepts, hints, final, check, note="", steps=None):
     return {"read_as": read_as, "subject": subject, "ambiguity_note": note,
             "concepts": [{"name": n, "meaning": m} for n, m in concepts],
-            "hints": [clip(h) for h in hints], "final_answer": final, "check": check}
+            "hints": [clip(h) for h in hints], "final_answer": final, "check": check,
+            "steps": steps or [f"Answer: {final}"]}
 
 
 # ---------------------------------------------------------------- chemistry
@@ -223,30 +224,109 @@ def solve_config(text: str) -> dict:
         concepts.append(("Cation rule", "Remove e⁻ from the highest n shell first."))
     final = f"{label}: {config_text(occ)}   (unpaired electrons: {unpaired(occ)})"
     check = {"kind": "electron_count", "z": z, "charge": charge, "config": config_text(occ, ascii_only=True)}
-    return pack(f"Electron configuration of {label} (Z = {z})", "Chemistry", concepts, h, final, check)
+    sup = lambda o: " ".join(f"{s}{str(k).translate(SUP)}" for s, k in ((s, o[s]) for s in ordered(o)))
+    steps = [f"Electron configuration of {label}", f"{sym} has Z = {z}, so {n_el} electrons to place.",
+             "Aufbau fill order: " + " ".join(upto) + "."]
+    if charge <= 0:
+        if charge < 0:
+            steps.append(f"Anion {label}: {abs(charge)} extra e⁻ are added, so fill {n_el} in total.")
+        steps.append("Fill in that order, max 2 e⁻ per orbital (s 2, p 6, d 10, f 14):")
+        steps.append(sup(madelung(n_el)))
+        if exc:
+            steps.append(f"Exception: {sym} is more stable with half-filled or full d/f subshells, so it is")
+            steps.append(sup(occ))
+    else:
+        neutral = config_for(z, 0)
+        steps.append("Neutral atom: " + sup(neutral))
+        gone = [f"{neutral[s] - occ.get(s, 0)} from {s}" for s in ordered(neutral) if neutral[s] != occ.get(s, 0)]
+        steps.append(f"Cation {label}: remove {charge} e⁻ from the highest shell first ({', '.join(gone)}):")
+        steps.append(sup(occ))
+
+    def boxes(sub, e):
+        n_orb = 2 * L[sub[1]] + 1
+        return "".join("[↑↓]" if i < e - n_orb else "[↑]" if i < min(e, n_orb) else "[ ]" for i in range(n_orb))
+    steps.append("Hund's rule: " + "  ".join(f"{s} {boxes(s, rest[s])}" for s in ordered(rest)) if rest else "Hund's rule: all orbitals full.")
+    steps += [f"Unpaired electrons: {unpaired(occ)}.", f"Noble-gas shorthand: {config_text(occ)}", f"Answer: {final.split('   (')[0]}"]
+    return pack(f"Electron configuration of {label} (Z = {z})", "Chemistry", concepts, h, final, check, steps=steps)
 
 
 # ---------------------------------------------------------------- calculus
-def _unwrap(rule):
-    """Find the most informative step in a manualintegrate rule tree."""
+def _unwrap(rule, const=1):
+    """Find the most informative step in a manualintegrate rule tree -> (rule, outer constant)."""
     name = type(rule).__name__
     if name in ("URule", "PartsRule", "TrigSubstitutionRule", "PartialFractionsRule"):
-        return rule
+        return rule, const
+    if name == "ConstantTimesRule":
+        return _unwrap(rule.substep, const * rule.constant)
     if name == "AlternativeRule":
-        found = [r for r in (_unwrap(a) for a in rule.alternatives) if r is not None]
-        urules = [r for r in found if type(r).__name__ == "URule"]
+        found = [rc for rc in (_unwrap(a, const) for a in rule.alternatives) if rc[0] is not None]
+        urules = [rc for rc in found if type(rc[0]).__name__ == "URule"]
         if urules:  # the textbook substitution is the simplest u
-            return min(urules, key=lambda r: sp.count_ops(r.u_func))
-        return found[0] if found else None
-    for attr in ("substep",):
-        sub = getattr(rule, attr, None)
-        if sub is not None:
-            return _unwrap(sub)
+            return min(urules, key=lambda rc: sp.count_ops(rc[0].u_func))
+        return found[0] if found else (None, 1)
+    sub = getattr(rule, "substep", None)
+    if sub is not None:
+        return _unwrap(sub, const)
     for sub in getattr(rule, "substeps", None) or []:
-        r = _unwrap(sub)
-        if r is not None:
-            return r
-    return None
+        rc = _unwrap(sub, const)
+        if rc[0] is not None:
+            return rc
+    return None, 1
+
+
+def _is_antiderivative(f, F, var):
+    return verify.verify({"kind": "integral", "expr": str(f), "result": str(F), "var": str(var)})["status"] == "pass"
+
+
+def _integral_steps(f, F, var, step, const):
+    """Worked solution lines + an antiderivative consistent with them (verified)."""
+    kind = type(step).__name__ if step is not None else ""
+    u_sym = sp.Symbol("u")
+    out = [f"Evaluate ∫ {fmt(f)} d{var}"]
+    used = ""
+    if f.is_Add and len(f.args) > 1:
+        used = "sum"
+        out.append("It is a sum, so integrate term by term:")
+        parts = [sp.integrate(t, var) for t in f.args]
+        for t, P in zip(f.args, parts):
+            out.append(f"∫ {fmt(t)} d{var} = {fmt(P)}")
+        Fs = sp.Add(*parts)
+        F = Fs if _is_antiderivative(f, Fs, var) else F
+    elif kind == "URule":
+        uv, u = step.u_var, step.u_func
+        du = sp.diff(u, var)
+        inner = sp.simplify(const * step.substep.integrand)
+        Fu = sp.integrate(inner, uv)
+        Fb = Fu.subs(uv, u)
+        if _is_antiderivative(f, Fb, var):  # only narrate a substitution that really solves the whole integral
+            used, F = "URule", Fb
+            out += [f"Substitution: let u = {fmt(u)}.", f"Then du = {fmt(du)} d{var}.",
+                    f"The integral becomes ∫ {fmt(inner.subs(uv, u_sym))} du.",
+                    f"Integrate in u: {fmt(Fu.subs(uv, u_sym))} + C.", f"Back-substitute u = {fmt(u)}."]
+    elif kind == "PartsRule":
+        u, dv = step.u, step.dv
+        du, v = sp.diff(u, var), sp.integrate(dv, var)
+        rest = sp.simplify(v * du)
+        rest_int = sp.integrate(rest, var)
+        Fp = const * (u * v - rest_int)
+        if _is_antiderivative(f, Fp, var):
+            used, F = "PartsRule", Fp
+            out += ["Integration by parts: ∫u dv = u·v − ∫v du.",
+                    f"Let u = {fmt(u)}, dv = {fmt(dv)} d{var}.", f"Then du = {fmt(du)} d{var}, v = {fmt(v)}.",
+                    f"So the integral = {fmt(u * v)} − ∫ {fmt(rest)} d{var}.",
+                    f"The remaining integral is {fmt(rest_int)}."]
+            if const != 1:
+                out.insert(1, f"Constant factor {fmt(const)} stays in front.")
+    elif kind in ("TrigSubstitutionRule", "PartialFractionsRule"):
+        used = kind
+        out += ["Method: " + ("trig substitution." if kind.startswith("Trig") else "partial fractions."),
+                "Do the substitution/decomposition, integrate each piece, convert back."]
+    if not used:
+        if f.is_Mul or f.is_Pow or f.has(sp.sin, sp.cos, sp.tan):
+            out.append("Rewrite with an algebra or trig identity, then integrate with standard forms.")
+        out.append(f"Standard forms give ∫ {fmt(f)} d{var} = {fmt(F)} + C.")
+    out.append(f"Answer: {fmt(F)} + C")
+    return out, F, used
 
 
 def solve_integral(text: str) -> dict:
@@ -270,13 +350,17 @@ def solve_integral(text: str) -> dict:
                  "For definite bounds, use numeric methods or series instead."]
         final = f"No elementary antiderivative. In special functions: {fmt(F)} + C" if not F.has(sp.Integral) else "No closed form found."
         check = {"kind": "integral", "expr": str(f), "result": str(F)} if not F.has(sp.Integral) else {"kind": "none"}
+        steps = [f"Evaluate ∫ {fmt(f)} d{var}", "This integrand has no elementary antiderivative:",
+                 "no combination of polynomials, e^x, logs and trig gives it.",
+                 f"In special functions: {fmt(F)} + C" if not F.has(sp.Integral) else "SymPy found no closed form.",
+                 "Check the problem: is a factor missing (like 2x in front of e^(x²))?"]
         return pack(read, "Calculus", [("Non-elementary integral", "Some integrals can't be written with elementary functions.")],
-                    hints, final, check, note="This integrand has no elementary antiderivative.")
+                    hints, final, check, note="This integrand has no elementary antiderivative.", steps=steps)
     try:
-        step = _unwrap(integral_steps(f, var))
+        step, const = _unwrap(integral_steps(f, var))
     except Exception:
-        step = None
-    kind = type(step).__name__ if step is not None else ""
+        step, const = None, 1
+    steps, F, kind = _integral_steps(f, F, var, step, const)
     if kind == "URule":
         u = step.u_func
         hints = ["Look for an inner function whose derivative also appears in the integrand.",
@@ -308,25 +392,71 @@ def solve_integral(text: str) -> dict:
                  "Add + C once at the end and simplify.",
                  "Check: differentiate your result. Do you get the original integrand?"]
         concepts = [("Basic integration rules", "Power, exponential and trig antiderivatives.")]
-    return pack(read, "Calculus", concepts, hints, f"{fmt(F)} + C", {"kind": "integral", "expr": str(f), "result": str(F), "var": str(var)})
+    return pack(read, "Calculus", concepts, hints, f"{fmt(F)} + C", {"kind": "integral", "expr": str(f), "result": str(F), "var": str(var)}, steps=steps)
 
 
 def _classify(f, v):
+    """-> (rule kind, extra info, the sub-expression that rule applies to)."""
     if f.is_Add:
         dep = [a for a in f.args if a.has(v)]
-        return ("sum", None) if len(dep) > 1 else _classify(dep[0], v) if dep else ("const", None)
+        if len(dep) > 1:
+            return "sum", None, f
+        return _classify(dep[0], v) if dep else ("const", None, f)
     if f.is_Mul:
         dep = [a for a in f.args if a.has(v)]
         if len(dep) >= 2:
-            return ("quotient", None) if any(a.is_Pow and a.exp.is_negative for a in dep) else ("product", None)
-        return _classify(dep[0], v) if dep else ("const", None)
+            quo = any(a.is_Pow and a.exp.is_negative for a in dep)
+            return ("quotient" if quo else "product"), None, f
+        return _classify(dep[0], v) if dep else ("const", None, f)
     if f.is_Pow:
         if f.exp.has(v):
-            return ("expo", None) if not f.base.has(v) else ("logdiff", None)
-        return ("power", None) if f.base == v else ("chain", (f"power {fmt(f.exp)}", f.base))
+            return ("expo" if not f.base.has(v) else "logdiff"), None, f
+        return ("power", None, f) if f.base == v else ("chain", (f"power {fmt(f.exp)}", f.base), f)
     if f.is_Function and f.args:
-        return ("standard", None) if f.args[0] == v else ("chain", (f.func.__name__, f.args[0]))
-    return ("standard", None)
+        return ("standard", None, f) if f.args[0] == v else ("chain", (f.func.__name__, f.args[0]), f)
+    return "standard", None, f
+
+
+def _diff_steps(f, var, kind, extra, core, ans):
+    out = [f"Differentiate d/d{var} [ {fmt(f)} ]"]
+    if core != f:
+        out.append(f"Constants in front or added vanish or stay, so work on {fmt(core)}.")
+    if kind == "chain":
+        g = sp.Symbol("g")
+        outer = g ** core.exp if core.is_Pow else core.func(g)
+        d_out, d_in = sp.diff(outer, g), sp.diff(extra[1], var)
+        out += [f"Chain rule. Outer function: {fmt(outer)}, inner g = {fmt(extra[1])}.",
+                f"Outer derivative: d/dg {fmt(outer)} = {fmt(d_out)}.",
+                f"Inner derivative: g' = {fmt(d_in)}.",
+                f"Multiply: {fmt(d_out.subs(g, extra[1]))} · {fmt(d_in)}."]
+    elif kind == "product":
+        dep = [a for a in core.args if a.has(var)]
+        u, v = dep[0], sp.Mul(*[a for a in core.args if a is not dep[0]])
+        out += ["Product rule: (u·v)' = u'·v + u·v'.", f"u = {fmt(u)}, v = {fmt(v)}.",
+                f"u' = {fmt(sp.diff(u, var))}, v' = {fmt(sp.diff(v, var))}.",
+                f"So the derivative is {fmt(sp.diff(u, var) * v)} + {fmt(u * sp.diff(v, var))}."]
+    elif kind == "quotient":
+        num, den = sp.fraction(sp.together(core))
+        out += ["Quotient rule: (u/v)' = (u'·v − u·v') / v².", f"u = {fmt(num)}, v = {fmt(den)}.",
+                f"u' = {fmt(sp.diff(num, var))}, v' = {fmt(sp.diff(den, var))}.",
+                f"Numerator: {fmt(sp.diff(num, var) * den - num * sp.diff(den, var))}, over ({fmt(den)})²."]
+    elif kind == "sum":
+        out.append("It is a sum: differentiate each term.")
+        out += [f"d/d{var} {fmt(t)} = {fmt(sp.diff(t, var))}" for t in core.args]
+    elif kind == "logdiff":
+        lg = sp.expand_log(sp.log(core), force=True)
+        out += [f"Variable base and exponent: take ln. ln y = {fmt(lg)}.",
+                f"Differentiate: y'/y = {fmt(sp.diff(lg, var))}.", f"So y' = y · ({fmt(sp.diff(lg, var))})."]
+    elif kind == "power":
+        out.append(f"Power rule: d/d{var} {var}^n = n·{var}^(n−1), so d/d{var} {fmt(core)} = {fmt(sp.diff(core, var))}.")
+    elif kind == "expo":
+        out.append(f"Exponential rule: d/d{var} a^{var} = a^{var}·ln(a), so d/d{var} {fmt(core)} = {fmt(sp.diff(core, var))}.")
+    elif kind == "const":
+        out.append("Nothing depends on the variable, so the derivative is 0.")
+    else:
+        out.append(f"Standard derivative: d/d{var} {fmt(core)} = {fmt(sp.diff(core, var))}.")
+    out.append(f"Answer: {fmt(ans)}")
+    return out
 
 
 def solve_derivative(text: str) -> dict:
@@ -342,7 +472,7 @@ def solve_derivative(text: str) -> dict:
         var = sp.Symbol(m.group(2) or "x")
     body = re.sub(r"^\s*[a-z]\s*\(\s*[a-z]\s*\)\s*=", "", body)
     f = to_sympy(strip_outer(body))
-    kind, extra = _classify(f, var)
+    kind, extra, core = _classify(f, var)
     ans = sp.diff(f, var)
     steps = {
         "sum": (["It's a sum: differentiate term by term.", "Handle each term with its own rule.", "Add the results."],
@@ -368,7 +498,8 @@ def solve_derivative(text: str) -> dict:
     hints, concepts = steps[kind]
     hints = hints + ["Check: pick a number, compare the slope numerically with your formula."]
     return pack(f"d/d{var} [ {fmt(f)} ]", "Calculus", concepts, hints, fmt(ans),
-                {"kind": "derivative", "expr": str(f), "result": str(ans), "var": str(var)})
+                {"kind": "derivative", "expr": str(f), "result": str(ans), "var": str(var)},
+                steps=_diff_steps(f, var, kind, extra, core, ans))
 
 
 def solve_limit(text: str) -> dict:
@@ -395,8 +526,37 @@ def solve_limit(text: str) -> dict:
     hints.append("Check that approaching from both sides gives the same value.")
     final = f"lim = {fmt(L)}"
     check = {"kind": "limit", "expr": str(f), "point": str(pt), "result": str(L), "var": str(var)} if L.is_number and L.is_finite else {"kind": "none"}
+    steps = [f"Evaluate lim {var}→{fmt(pt)} of {fmt(f)}"]
+    if not indeterminate:
+        steps += [f"Substitute {var} = {fmt(pt)}: {fmt(direct)}.", "It is defined and finite, so that is the limit."]
+    else:
+        steps.append(f"Substituting {var} = {fmt(pt)} gives an indeterminate form, so simplify first.")
+        num, den = sp.fraction(sp.together(f))
+        cancelled = sp.cancel(f)
+        try:
+            ok_cancel = cancelled != f and pt != sp.oo and sp.simplify(cancelled.subs(var, pt) - L) == 0
+        except Exception:
+            ok_cancel = False
+        lhop_ok = False
+        if not ok_cancel and den != 1:
+            try:
+                ratio = sp.diff(num, var) / sp.diff(den, var)
+                lhop_ok = abs(float(sp.N(sp.limit(ratio, var, pt) - L))) < 1e-9
+            except Exception:
+                lhop_ok = False
+        if ok_cancel:
+            steps += [f"Cancel common factors: {fmt(cancelled)}.", f"Now substitute {var} = {fmt(pt)}: {fmt(cancelled.subs(var, pt))}."]
+        elif lhop_ok:
+            steps += ["Both top and bottom → 0 or ∞, so use L'Hôpital: lim f/g = lim f'/g'.",
+                      f"f' = {fmt(sp.diff(num, var))}, g' = {fmt(sp.diff(den, var))}.",
+                      f"Evaluate lim of {fmt(ratio)} = {fmt(L)}."]
+        elif f.has(sp.sin) and pt == 0:
+            steps.append("Standard limit: sin(u)/u → 1 as u → 0 (adjust for any constant factor).")
+        else:
+            steps.append("Use a standard limit or series expansion.")
+    steps.append(f"Answer: {fmt(L)}")
     return pack(f"lim {var}→{fmt(pt)} of {fmt(f)}", "Calculus", [("Limits", "Value the function approaches near a point."),
-                ("L'Hôpital's rule", "0/0 or ∞/∞: differentiate top and bottom.")], hints, final, check)
+                ("L'Hôpital's rule", "0/0 or ∞/∞: differentiate top and bottom.")], hints, final, check, steps=steps)
 
 
 def solve_equation(text: str) -> dict:
@@ -430,19 +590,47 @@ def solve_equation(text: str) -> dict:
                  "Solve each factor separately.", "Check every candidate: some may be extraneous."]
         concepts = [("Factoring", "Zero-product property: ab = 0 → a = 0 or b = 0.")]
     if sols.is_FiniteSet and len(sols) > 0:
-        roots = sorted(sols, key=lambda r: float(sp.N(r)))
+        # decimals in the problem make SymPy return Floats: turn them back into exact numbers
+        exact = [sp.nsimplify(r, rational=True, tolerance=1e-9) if r.has(sp.Float) else r for r in sols]
+        roots = sorted(exact, key=lambda r: float(sp.N(r)))
         final = " or ".join(f"{v} = {fmt(r)}" for r in roots)
         check = {"kind": "equation", "expr": f"{lhs} = {rhs}", "result": ", ".join(str(r) for r in roots), "var": str(v)}
     elif sols is sp.S.EmptySet:
         final, check = "No real solutions.", {"kind": "none"}
     else:
         raise Unsupported("couldn't solve that equation in closed form")
-    return pack(f"Solve {fmt(lhs)} = {fmt(rhs)}", "Algebra", concepts, hints, final, check)
+    steps = [f"Solve {fmt(lhs)} = {fmt(rhs)}"]
+    if deg == 2:
+        a, b, c = sp.Poly(expr, v).all_coeffs()
+        D = b ** 2 - 4 * a * c
+        steps += [f"Standard form: {fmt(sp.expand(expr))} = 0.", f"a = {fmt(a)}, b = {fmt(b)}, c = {fmt(c)}.",
+                  f"Discriminant D = b² − 4ac = {fmt(D)}.",
+                  "D > 0: two real roots." if D > 0 else "D = 0: one repeated root." if D == 0 else "D < 0: no real roots.",
+                  f"{v} = (−b ± √D) / 2a."]
+    elif deg == 1:
+        steps += [f"Collect terms: {fmt(sp.expand(expr))} = 0.", f"Isolate {v} by undoing the operations."]
+    elif deg:
+        steps += [f"Move everything to one side: {fmt(sp.expand(expr))} = 0.", f"Factor: {fmt(sp.factor(expr))} = 0.",
+                  "Set each factor to zero."]
+    else:
+        steps.append("Isolate the unknown and solve; check each candidate for extraneous roots.")
+    steps.append(f"Answer: {final}")
+    return pack(f"Solve {fmt(lhs)} = {fmt(rhs)}", "Algebra", concepts, hints, final, check, steps=steps)
 
 
 # ---------------------------------------------------------------- dispatch
-def solve(text: str) -> dict:
+LEAD = re.compile(r"^(?:q(?:uestion)?\s*\d+\s*[:.)]|\(?\d+[.)]\s+|\([a-z]\)\s*|[a-z][.)]\s+)\s*", re.I)
+
+
+def clean_line(text: str) -> str:
+    """Strip numbering ('2.', 'Q3:', '(a)') and trailing punctuation that OCR/typing leaves around a problem."""
     t = text.strip()
+    t = LEAD.sub("", t)
+    return t.rstrip(".,;:!? \t")
+
+
+def solve(text: str) -> dict:
+    t = clean_line(text)
     lo = t.lower()
     if re.search(r"electron(?:ic)?\s+config|e-?\s*config|configuration of", lo):
         return solve_config(t)
@@ -480,19 +668,94 @@ def solve_safely(text: str, timeout: float = 12.0) -> dict:
 _ocr = None
 
 
+class OCRUnavailable(Exception):
+    pass
+
+
 def repair_ocr(text: str) -> str:
-    """Fix the confusions OCR makes on maths. The UI still shows the result for the user to confirm."""
-    t = text.strip().replace("~", "^")
-    t = re.sub(r"(?<![A-Za-z])([xyzt])(\d+)(?![\d.])", r"\1^\2", t)      # x3 -> x^3 (lost superscript)
-    if re.search(r"(?:\s|\))d[xyt]\s*$", t):
-        t = re.sub(r"^[{|JfSʃ]\s*", "∫ ", t)                               # lost integral sign
-    return t
+    """Fix the confusions OCR makes on maths (applied per line)."""
+    out = []
+    for line in text.splitlines():
+        t = line.strip().replace("~", "^")
+        t = re.sub(r"(?<![A-Za-z])([xyzt])(\d+)(?![\d.])", r"\1^\2", t)      # x3 -> x^3 (lost superscript)
+        if re.search(r"(?:\s|\))d[xyt]\s*$", t):
+            t = re.sub(r"^[{|JfSʃ/Il]\s*", "∫ ", t)                          # lost integral sign
+        if t:
+            out.append(t)
+    return "\n".join(out)
+
+
+def _ocr_rapid(image_bytes: bytes) -> str:
+    global _ocr
+    from rapidocr_onnxruntime import RapidOCR  # ImportError -> try the next backend
+    _ocr = _ocr or RapidOCR()
+    result, _ = _ocr(image_bytes)
+    return "\n".join(r[1] for r in (result or []))
+
+
+def _ocr_tesseract(image_bytes: bytes) -> str:
+    """Tesseract CLI (Termux: pkg install tesseract). Light preprocessing if Pillow is present."""
+    import shutil
+    import subprocess
+    import tempfile
+    exe = shutil.which("tesseract")
+    if not exe:
+        raise ImportError("tesseract not installed")
+    with tempfile.TemporaryDirectory() as d:
+        path = f"{d}/in.png"
+        try:
+            import io
+
+            from PIL import Image, ImageOps
+            im = ImageOps.autocontrast(ImageOps.grayscale(Image.open(io.BytesIO(image_bytes))))
+            if im.width < 1400:
+                im = im.resize((im.width * 2, im.height * 2))
+            im.save(path)
+        except ImportError:
+            with open(path, "wb") as fh:
+                fh.write(image_bytes)
+        r = subprocess.run([exe, path, "stdout", "--psm", "6"], capture_output=True, text=True, timeout=30)
+        return r.stdout
+
+
+BACKENDS = {"rapidocr": _ocr_rapid, "tesseract": _ocr_tesseract}
+
+
+def ocr_backend() -> str | None:
+    """Name of the first usable OCR backend, or None."""
+    import importlib.util
+    import shutil
+    if importlib.util.find_spec("rapidocr_onnxruntime"):
+        return "rapidocr"
+    return "tesseract" if shutil.which("tesseract") else None
 
 
 def ocr(image_bytes: bytes) -> str:
-    """Printed-text OCR via rapidocr-onnxruntime (models ship inside the wheel). Handwriting is weak."""
-    global _ocr
-    from rapidocr_onnxruntime import RapidOCR  # ImportError -> caller explains how to install
-    _ocr = _ocr or RapidOCR()
-    result, _ = _ocr(image_bytes)
-    return repair_ocr(" ".join(r[1] for r in (result or [])))
+    """Read text from an image (lines separated by newlines). Handwriting is weak; printed text is fine."""
+    name = ocr_backend()
+    if name is None:
+        raise OCRUnavailable("no OCR installed: pkg install tesseract (Termux) or pip install rapidocr-onnxruntime")
+    return repair_ocr(BACKENDS[name](image_bytes))
+
+
+# ---------------------------------------------------------------- one call for everything
+def candidates(text: str):
+    lines = [l.strip() for l in text.splitlines() if l.strip()]
+    yield from lines
+    yield from (lines[i] + " " + lines[i + 1] for i in range(len(lines) - 1))
+    if len(lines) > 2:
+        yield " ".join(lines)
+
+
+def solve_text(text: str, timeout: float = 12.0) -> dict:
+    """Never raises. Tries each OCR line, then neighbouring pairs, then the whole text."""
+    why = "nothing readable"
+    for c in candidates(text):
+        try:
+            data = solve_safely(c, timeout)
+        except Unsupported as e:
+            why = str(e)
+            continue
+        r = verify.verify(data.get("check"))
+        return {"ok": True, **data, "verified": r["status"], "verify_note": r["note"]}
+    return {"ok": False, "reason": why, "read": text.strip()}

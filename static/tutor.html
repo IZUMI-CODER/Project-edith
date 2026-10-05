@@ -1,0 +1,309 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#04090f">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<link rel="manifest" href="/static/manifest.webmanifest">
+<link rel="icon" href="/static/icon-192.png">
+<link rel="apple-touch-icon" href="/static/icon-192.png">
+<title>Lens Tutor</title>
+<style>
+  :root {
+    --bg: #04090f; --panel: rgba(8, 24, 36, .72); --cyan: #4df3ff; --cyan-dim: #1b8f99;
+    --amber: #ffb340; --red: #ff5a5a; --text: #d8f9ff; --green: #5dff8f;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; background: var(--bg); color: var(--text);
+    font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace; overflow: hidden; }
+  #app { position: relative; height: 100%; display: flex; flex-direction: column; }
+
+  /* ---- viewport ---- */
+  #view { position: relative; flex: 1; min-height: 0; background: #000; overflow: hidden; }
+  #video, #shot { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; }
+  #shot { display: none; }
+  .corners::before, .corners::after, .corners i::before, .corners i::after {
+    content: ""; position: absolute; width: 34px; height: 34px; border: 2px solid var(--cyan);
+    filter: drop-shadow(0 0 6px var(--cyan)); z-index: 3; pointer-events: none; }
+  .corners::before { top: 14px; left: 14px; border-right: 0; border-bottom: 0; }
+  .corners::after  { top: 14px; right: 14px; border-left: 0; border-bottom: 0; }
+  .corners i::before { bottom: 14px; left: 14px; border-right: 0; border-top: 0; }
+  .corners i::after  { bottom: 14px; right: 14px; border-left: 0; border-top: 0; }
+  #scan { position: absolute; left: 0; right: 0; height: 3px; top: 0; z-index: 2; display: none;
+    background: linear-gradient(90deg, transparent, var(--cyan), transparent);
+    box-shadow: 0 0 22px 6px rgba(77, 243, 255, .55); animation: sweep 1.6s ease-in-out infinite alternate; }
+  #scanTint { position: absolute; inset: 0; z-index: 1; display: none; background:
+    repeating-linear-gradient(0deg, rgba(77,243,255,.06) 0 2px, transparent 2px 6px); }
+  @keyframes sweep { from { top: 4%; } to { top: 96%; } }
+  .scanning #scan, .scanning #scanTint { display: block; }
+  #status { position: absolute; top: 16px; left: 0; right: 0; text-align: center; z-index: 4;
+    font-size: 12px; letter-spacing: .3em; color: var(--cyan); text-shadow: 0 0 8px var(--cyan); }
+
+  /* ---- HUD panel ---- */
+  #hud { flex: none; padding: 14px calc(16px + env(safe-area-inset-right)) calc(16px + env(safe-area-inset-bottom)) calc(16px + env(safe-area-inset-left)); background: linear-gradient(180deg, rgba(4,9,15,0), var(--panel) 28%);
+    backdrop-filter: blur(6px); border-top: 1px solid rgba(77,243,255,.25); }
+  #tags { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 8px; min-height: 22px; }
+  .tag { font-size: 11px; padding: 3px 8px; border: 1px solid var(--cyan-dim); border-radius: 999px;
+    color: var(--cyan); background: rgba(77,243,255,.07); cursor: help; }
+  .tag.subject { border-color: var(--amber); color: var(--amber); background: rgba(255,179,64,.07); }
+  #readas { font-size: 13px; color: var(--cyan-dim); margin-bottom: 8px; display: none; }
+  #readas b { color: var(--text); font-weight: 600; }
+  #warn { color: var(--amber); font-size: 12px; margin-bottom: 6px; display: none; }
+  #hint { font-size: clamp(17px, 3.4vw, 24px); line-height: 1.4; min-height: 3.4em; color: #fff;
+    text-shadow: 0 0 10px rgba(77,243,255,.55); }
+  #hint.answer { color: var(--green); text-shadow: 0 0 10px rgba(93,255,143,.5); }
+  .caret::after { content: "▌"; color: var(--cyan); animation: blink .8s steps(1) infinite; }
+  @keyframes blink { 50% { opacity: 0; } }
+  #bar { display: flex; align-items: center; gap: 10px; margin-top: 10px; flex-wrap: wrap; }
+  #pips { display: flex; gap: 5px; flex: 1; min-width: 80px; }
+  .pip { height: 4px; flex: 1; max-width: 34px; background: rgba(77,243,255,.18); border-radius: 2px; }
+  .pip.on { background: var(--cyan); box-shadow: 0 0 8px var(--cyan); }
+  button { font: inherit; font-size: 12px; letter-spacing: .08em; text-transform: uppercase; color: var(--cyan);
+    background: rgba(77,243,255,.08); border: 1px solid var(--cyan-dim); border-radius: 6px; padding: 9px 13px; cursor: pointer; }
+  button:hover { background: rgba(77,243,255,.18); }
+  button.primary { background: var(--cyan); color: #00161a; border-color: var(--cyan); font-weight: 700; }
+  button.warn { color: var(--amber); border-color: rgba(255,179,64,.5); }
+  button:disabled { opacity: .35; cursor: default; }
+  #confirm { display: none; gap: 8px; margin-top: 8px; flex-wrap: wrap; align-items: center; }
+  #editbox { display: none; width: 100%; margin-top: 8px; }
+  #editbox input { width: 100%; padding: 10px; background: #021018; border: 1px solid var(--cyan-dim);
+    color: var(--text); font: inherit; border-radius: 6px; }
+  #hint-hud-toggle { margin-left: auto; }
+
+  /* ---- glasses simulation (3 lines x 30 chars, monochrome green) ---- */
+  body.sim #hint { font-size: 15px; width: 30ch; height: 3.9em; min-height: 0; overflow: hidden; padding: 8px 10px;
+    margin: 0 auto; color: var(--green); background: #000; border: 6px solid #111; border-radius: 22px;
+    text-shadow: 0 0 6px var(--green); line-height: 1.3; word-break: break-word; }
+  body.sim #hint.answer { color: var(--green); }
+  body.sim #hint.long { outline: 2px solid var(--red); }
+
+  /* ---- boot ---- */
+  #boot { position: absolute; inset: 0; z-index: 20; background: #02060a; display: flex; flex-direction: column;
+    align-items: center; justify-content: center; gap: 18px; transition: opacity .6s; }
+  #boot.done { opacity: 0; pointer-events: none; }
+  #ring { width: 120px; height: 120px; border-radius: 50%; border: 2px solid var(--cyan); position: relative;
+    box-shadow: 0 0 30px rgba(77,243,255,.45), inset 0 0 30px rgba(77,243,255,.25); animation: spin 6s linear infinite; }
+  #ring::before { content: ""; position: absolute; inset: 14px; border-radius: 50%; border: 2px dashed var(--cyan-dim); animation: spin 3s linear infinite reverse; }
+  #ring::after { content: ""; position: absolute; inset: 40px; border-radius: 50%; background: var(--cyan); box-shadow: 0 0 25px var(--cyan); }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  #bootlog { font-size: 12px; color: var(--cyan); letter-spacing: .12em; min-height: 6.5em; text-align: left; line-height: 1.6; }
+  #bootbtn { opacity: 0; transition: opacity .4s; }
+  #bootbtn.show { opacity: 1; }
+  input[type=file] { display: none; }
+  .tag.ok { border-color: var(--green); color: var(--green); background: rgba(93,255,143,.08); cursor: help; }
+  .tag.bad { border-color: var(--red); color: var(--red); background: rgba(255,90,90,.08); cursor: help; }
+  .tag.skip { border-color: #5b6b73; color: #8fa2ab; background: transparent; cursor: help; }
+  #view, #hint { touch-action: pan-y; -webkit-tap-highlight-color: transparent; }
+  @media (pointer: coarse) { button { min-height: 44px; padding: 10px 14px; } #hint { font-size: clamp(19px, 5vw, 26px); } }
+  @media (max-width: 520px) { #bar2 button, #bar button { flex: 1 1 auto; } #simtoggle { display: none; } }
+</style>
+</head>
+<body>
+<div id="app">
+  <div id="view" class="corners"><i></i>
+    <video id="video" playsinline muted></video>
+    <img id="shot" alt="">
+    <div id="scanTint"></div><div id="scan"></div>
+    <div id="status">STANDBY</div>
+  </div>
+
+  <div id="hud">
+    <div id="tags"></div>
+    <div id="readas"></div>
+    <div id="warn"></div>
+    <div id="hint" class="caret">Point at a problem, then capture.</div>
+    <div id="confirm">
+      <button class="primary" id="yes">Yes, that's it</button>
+      <button id="edit">Fix it</button>
+    </div>
+    <div id="editbox"><input id="edittext" placeholder="Type the corrected problem, press Enter"></div>
+    <div id="bar">
+      <div id="pips"></div>
+      <button id="back" disabled>◀ Back</button>
+      <button id="next" class="primary" disabled>Next hint ▶</button>
+      <button id="reveal" class="warn" disabled>Show answer</button>
+    </div>
+    <div id="bar2" style="display:flex;gap:8px;margin-top:8px;flex-wrap:wrap">
+      <button id="capture" class="primary">Capture</button>
+      <button id="upload">Upload</button>
+      <button id="typebtn">Type</button>
+      <button id="reset" disabled>Reset</button>
+      <button id="simtoggle">Glasses HUD sim: off</button>
+    </div>
+  </div>
+
+  <div id="boot">
+    <div id="ring"></div>
+    <div id="bootlog"></div>
+    <button id="bootbtn" class="primary">Put on the glasses</button>
+  </div>
+  <input type="file" id="file" accept="image/*" capture="environment">
+</div>
+
+<script>
+const $ = id => document.getElementById(id);
+function apiHeaders() {
+  const h = { "Content-Type": "application/json" };
+  try { const c = localStorage.getItem("accessCode"); if (c) h["X-Access-Code"] = c; } catch (e) {}
+  return h;
+}
+const state = { hints: [], i: -1, answer: "", stage: "idle", shot: null, shown: false };
+
+/* ---------- boot ---------- */
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+const bootLines = ["LENS-OS 0.1", "optics .......... ok", "camera .......... ok", "reasoning core .. linked", "tutor mode ...... armed"];
+(async function boot() {
+  for (const l of bootLines) {
+    $("bootlog").textContent += l + "\n"; $("bootlog").style.whiteSpace = "pre";
+    await sleep(380);
+  }
+  $("bootbtn").classList.add("show");
+})();
+$("bootbtn").onclick = () => { $("boot").classList.add("done"); startCamera(); keepAwake(); typeHint("Online. Point at a problem and capture."); };
+
+/* ---------- camera / capture ---------- */
+let stream = null;
+async function startCamera() {
+  try {
+    stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment", width: { ideal: 1920 } } });
+    $("video").srcObject = stream; await $("video").play();
+    $("status").textContent = "LIVE";
+  } catch (e) {
+    $("status").textContent = "NO CAMERA: USE UPLOAD";
+  }
+}
+function setShot(dataUrl) {
+  state.shot = dataUrl; $("shot").src = dataUrl; $("shot").style.display = "block"; $("video").style.display = "none";
+}
+function frameToDataUrl(src, w, h) {
+  const max = 1600, s = Math.min(1, max / Math.max(w, h));
+  const c = document.createElement("canvas"); c.width = Math.round(w * s); c.height = Math.round(h * s);
+  c.getContext("2d").drawImage(src, 0, 0, c.width, c.height);
+  return c.toDataURL("image/jpeg", 0.85);
+}
+$("capture").onclick = () => {
+  const v = $("video");
+  if (!stream || !v.videoWidth) { $("file").click(); return; }
+  analyze({ image: frameToDataUrl(v, v.videoWidth, v.videoHeight) });
+};
+$("upload").onclick = () => $("file").click();
+$("typebtn").onclick = () => { const t = prompt("Type or paste the problem:"); if (t && t.trim()) analyze({ text: t.trim() }); };
+$("file").onchange = e => {
+  const f = e.target.files[0]; if (!f) return;
+  const img = new Image(); img.onload = () => analyze({ image: frameToDataUrl(img, img.naturalWidth, img.naturalHeight) });
+  img.src = URL.createObjectURL(f); e.target.value = "";
+};
+
+/* ---------- analyze ---------- */
+async function analyze({ image, text }) {
+  if (image) setShot(image);
+  state.stage = "scanning"; $("view").classList.add("scanning"); $("status").textContent = "SCANNING";
+  $("reset").disabled = false; resetHud(); typeHint("Reading…");
+  const body = text ? { text } : { image_b64: image.split(",")[1], media_type: "image/jpeg" };
+  try {
+    let r = await fetch("/api/tutor", { method: "POST", headers: apiHeaders(), body: JSON.stringify(body) });
+    if (r.status === 401) {
+      const code = prompt("Access code:");
+      if (code) { try { localStorage.setItem("accessCode", code); } catch (e) {} r = await fetch("/api/tutor", { method: "POST", headers: apiHeaders(), body: JSON.stringify(body) }); }
+    }
+    if (!r.ok) throw new Error((await r.json().catch(() => ({}))).detail || r.statusText);
+    const d = await r.json();
+    $("view").classList.remove("scanning");
+    if (!d.read_as || !d.hints.length) {
+      $("status").textContent = "NO PROBLEM FOUND";
+      typeHint(d.ambiguity_note || "I couldn't read a problem. Try again, closer and in better light.");
+      if (d.read_as) { $("readas").style.display = "block"; $("readas").textContent = "Press Type to correct or enter another problem."; }
+      return;
+    }
+    state.data = d; state.hints = d.hints; state.answer = d.final_answer; state.i = -1; state.shown = false;
+    showTags(d);
+    $("readas").style.display = "block"; $("readas").innerHTML = "I read: <b></b>"; $("readas").querySelector("b").textContent = d.read_as;
+    if (d.ambiguity_note) { $("warn").style.display = "block"; $("warn").textContent = "⚠ " + d.ambiguity_note; }
+    $("status").textContent = d.mock ? "DEMO DATA" : d.provider === "offline" ? "OFFLINE SOLVER" : "READ COMPLETE";
+    state.stage = "confirm"; $("confirm").style.display = "flex"; typeHint("Did I read that right?");
+  } catch (e) {
+    $("view").classList.remove("scanning"); $("status").textContent = "ERROR"; typeHint("Error: " + e.message);
+  }
+}
+function showTags(d) {
+  const t = $("tags"); t.innerHTML = "";
+  const s = document.createElement("span"); s.className = "tag subject"; s.textContent = d.subject; t.appendChild(s);
+  const v = document.createElement("span");
+  const labels = { pass: ["ok", "✓ verified"], fail: ["bad", "⚠ check failed"], skipped: ["skip", "unverified"] };
+  const [cls, label] = labels[d.verified] || labels.skipped; v.className = "tag " + cls; v.textContent = label;
+  v.title = d.verify_note || "Not machine-checkable"; v.onclick = () => typeHint(v.title); t.appendChild(v);
+  for (const c of d.concepts || []) {
+    const e = document.createElement("span"); e.className = "tag"; e.textContent = c.name; e.title = c.meaning; e.onclick = () => typeHint(c.name + ": " + c.meaning); t.appendChild(e);
+  }
+}
+
+/* ---------- confirm ---------- */
+$("yes").onclick = () => { $("confirm").style.display = "none"; $("editbox").style.display = "none"; state.stage = "hints"; renderPips(); step(1); };
+$("edit").onclick = () => { $("editbox").style.display = "block"; $("edittext").value = state.data.read_as; $("edittext").focus(); };
+$("edittext").onkeydown = e => { if (e.key === "Enter" && e.target.value.trim()) { $("editbox").style.display = "none"; $("confirm").style.display = "none"; analyze({ text: e.target.value.trim() }); } };
+
+/* ---------- hint ladder ---------- */
+function renderPips() {
+  const p = $("pips"); p.innerHTML = "";
+  state.hints.forEach((_, k) => { const d = document.createElement("div"); d.className = "pip" + (k <= state.i ? " on" : ""); p.appendChild(d); });
+  $("back").disabled = state.i <= 0; $("next").disabled = state.i >= state.hints.length - 1; $("reveal").disabled = state.stage !== "hints";
+}
+function step(dir) {
+  if (state.stage !== "hints") return;
+  if (navigator.vibrate) navigator.vibrate(12);
+  state.i = Math.max(0, Math.min(state.hints.length - 1, state.i + dir)); state.shown = false;
+  $("status").textContent = `HINT ${state.i + 1} / ${state.hints.length}`;
+  typeHint(state.hints[state.i]); renderPips();
+}
+$("next").onclick = () => step(1); $("back").onclick = () => step(-1);
+$("reveal").onclick = () => { if (state.stage !== "hints") return; state.shown = true; $("status").textContent = "FULL ANSWER"; typeHint(state.answer, true); };
+$("reset").onclick = () => {
+  state.stage = "idle"; $("shot").style.display = "none"; $("video").style.display = "block"; $("view").classList.remove("scanning");
+  $("status").textContent = stream ? "LIVE" : "STANDBY"; resetHud(); typeHint("Ready."); $("reset").disabled = true;
+};
+function resetHud() {
+  state.hints = []; state.i = -1; $("tags").innerHTML = ""; $("readas").style.display = "none"; $("warn").style.display = "none";
+  $("confirm").style.display = "none"; $("editbox").style.display = "none"; renderPips();
+  $("next").disabled = $("back").disabled = $("reveal").disabled = true;
+}
+document.addEventListener("keydown", e => {
+  if (e.target.tagName === "INPUT") return;
+  if (e.key === "ArrowRight" || e.key === " ") { e.preventDefault(); step(1); }
+  if (e.key === "ArrowLeft") step(-1);
+  if (e.key === "a") $("reveal").click();
+  if (e.key === "c") $("capture").click();
+});
+
+/* ---------- typewriter + glasses sim ---------- */
+let typer = null;
+function typeHint(text, isAnswer = false) {
+  clearInterval(typer); const el = $("hint"); el.className = "caret" + (isAnswer ? " answer" : "");
+  el.classList.toggle("long", text.length > 90 && state.stage === "hints");
+  let n = 0; el.textContent = "";
+  typer = setInterval(() => { el.textContent = text.slice(0, ++n); if (n >= text.length) { clearInterval(typer); el.classList.remove("caret"); } }, 14);
+}
+$("simtoggle").onclick = () => {
+  document.body.classList.toggle("sim");
+  $("simtoggle").textContent = "Glasses HUD sim: " + (document.body.classList.contains("sim") ? "on" : "off");
+};
+
+/* ---------- phone niceties ---------- */
+let sx = null, sy = null;
+for (const el of [$("view"), $("hint")]) {
+  el.addEventListener("touchstart", e => { sx = e.touches[0].clientX; sy = e.touches[0].clientY; }, { passive: true });
+  el.addEventListener("touchend", e => {
+    if (sx === null) return;
+    const dx = e.changedTouches[0].clientX - sx, dy = e.changedTouches[0].clientY - sy; sx = null;
+    if (Math.abs(dx) > 50 && Math.abs(dx) > 2 * Math.abs(dy)) step(dx < 0 ? 1 : -1);
+    else if (Math.abs(dx) < 10 && Math.abs(dy) < 10 && el === $("hint")) step(1);
+  }, { passive: true });
+}
+let wake = null;
+async function keepAwake() { try { wake = await navigator.wakeLock.request("screen"); } catch (e) {} }
+document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible" && $("boot").classList.contains("done")) keepAwake(); });
+if ("serviceWorker" in navigator) navigator.serviceWorker.register("/sw.js").catch(() => {});
+</script>
+</body>
+</html>

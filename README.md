@@ -1,21 +1,23 @@
 # Glasses Tutor (software prototype)
 
+**Auto mode (`lite_server.py`):** continuous camera, detects when you hold still on a problem, solves it offline and types the full
+worked solution as a self-scrolling teleprompter. **Tutor mode (`server.py`):** capture, confirm, hint ladder.
+
 Photo of a problem in, confirm what was read, then a step-by-step hint ladder out.
 Subject-agnostic (maths, chemistry, physics, ...). Hints are written to fit a tiny
 heads-up display: at most 90 characters, plain-text math.
 
 ## Run
-    pip install -r requirements.txt rapidocr-onnxruntime   # OCR is optional; you can always press Type
-    ANTHROPIC_API_KEY=sk-... uvicorn server:app --port 8000   # real model
-    uvicorn server:app --port 8000                             # no key: free offline solver
-    MOCK=1 uvicorn server:app --port 8000                      # canned demo data
-    OPENAI_BASE_URL=http://localhost:11434/v1 OPENAI_MODEL=llama3.2-vision uvicorn server:app   # free, local (docs/FREE.md)
-    # hosting it? also set ACCESS_CODE=... (see docs/PHONE.md)
+**On the tablet / any device, fully offline (recommended):** see `docs/TABLET.md`.
 
-Open http://localhost:8000. Keys: Space/→ next hint, ← back, A answer, C capture.
-`CLAUDE_MODEL` overrides the model (default `claude-sonnet-5-5`).
+    pip install sympy                      # + `pkg install tesseract` on Termux, or `pip install rapidocr-onnxruntime` on a PC
+    python lite_server.py                  # http://localhost:8000: point the camera, hold still, it solves and scrolls the solution
 
-## Flow
+**PC with model backends (hints/tutor mode, optional):** `pip install -r requirements.txt`, then
+`uvicorn server:app --port 8000` and open `/` (tutor page). Set `ANTHROPIC_API_KEY` or `OPENAI_BASE_URL` for a model;
+with neither, the same offline solver runs. `MOCK=1` serves canned demo data.
+
+## Tutor-mode flow (`server.py`)
 1. Capture (camera or upload) -> scan animation.
 2. "I read: ..." confirmation. Fix it by typing the correction; it re-runs from text.
 3. Hint ladder, one step per tap. The full answer only appears on request.

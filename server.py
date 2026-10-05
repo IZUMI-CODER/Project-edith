@@ -319,7 +319,7 @@ def sw():
 
 @app.get("/")
 def index():
-    return FileResponse(HERE / "static" / "index.html")
+    return FileResponse(HERE / "static" / "tutor.html")
 
 
 app.mount("/static", StaticFiles(directory=HERE / "static"), name="static")
