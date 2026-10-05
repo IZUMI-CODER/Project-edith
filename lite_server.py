@@ -21,6 +21,7 @@ from pathlib import Path
 from urllib.parse import urlparse
 
 import engine
+import llm
 import offline
 
 STATIC = Path(__file__).parent / "static"
@@ -52,7 +53,7 @@ class Handler(BaseHTTPRequestHandler):
     def do_GET(self):
         path = urlparse(self.path).path
         if path == "/api/status":
-            return self.send_json(200, {"engine": "offline", "ocr": offline.ocr_backend(), "needs_code": bool(ACCESS_CODE)})
+            return self.send_json(200, {"engine": "offline", "ocr": offline.ocr_backend(), "llm": llm.describe(), "needs_code": bool(ACCESS_CODE)})
         if path in ("/glasses", "/glasses/"):
             path = "/glasses.html"
         rel = "index.html" if path in ("/", "") else path.removeprefix("/static/").lstrip("/")
@@ -102,6 +103,7 @@ def main():
     a = ap.parse_args()
     srv = ThreadingHTTPServer((a.host, a.port), Handler)
     print(f"Lens Tutor (offline) on http://{a.host}:{a.port}   OCR: {offline.ocr_backend() or 'NONE - install tesseract'}")
+    print("Word problems / everything else: " + (f"language model {llm.describe()}" if llm.configured() else "NOT set up (see docs/LLM.md); only calculus, equations, limits and electron configs"))
     if a.host != "127.0.0.1" and not ACCESS_CODE:
         print("Note: reachable from your network with no access code. Set ACCESS_CODE=... if others share the Wi-Fi.")
     try:

@@ -9,6 +9,7 @@ import threading
 import time
 from pathlib import Path
 
+import llm
 import offline
 
 SAME_THRESHOLD = 0.9
@@ -20,9 +21,19 @@ def norm(s: str) -> str:
     return re.sub(r"[^a-z0-9+\-*/^=()∫]", "", s.lower())
 
 
+def looks_like_question(text: str) -> bool:
+    """Only spend a model call on text that reads like a question, not a poster or a shopping list."""
+    words = re.findall(r"[A-Za-z]{2,}", text)
+    if len(words) < 8:
+        return False
+    return bool("?" in text or re.search(r"\d", text) or
+                re.search(r"\b(find|calculate|determine|what|how|why|explain|solve|prove|show|compute|given|suppose|if)\b", text, re.I))
+
+
 class Session:
     def __init__(self):
         self.last_key = ""
+        self.last_llm_key = ""
         self.lock = threading.Lock()
 
 
@@ -49,6 +60,18 @@ def handle_text(text: str, sid: str = "default", force: bool = False) -> dict:
     if not text.strip():
         return {"status": "nothing"}
     res = offline.solve_text(text)
+    if not res["ok"] and llm.configured() and looks_like_question(text):
+        key = norm(text)[:300]
+        if not force and sess.last_llm_key and difflib.SequenceMatcher(None, key, sess.last_llm_key).ratio() >= SAME_THRESHOLD:
+            return {"status": "same"}
+        try:
+            out = llm.solve(text)
+        except llm.LLMError as e:
+            return {"status": "unsupported", "read": res["read"][:300], "reason": f"language model: {e}"}
+        sess.last_llm_key = key
+        sess.last_key = norm(out["read_as"])
+        return present({"read_as": out["read_as"], "subject": "AI", "steps": out["steps"], "final_answer": out["final_answer"],
+                        "verified": "unverified", "verify_note": "solved by a language model; not re-checked", "ambiguity_note": ""})
     if not res["ok"]:
         return {"status": "unsupported", "read": res["read"][:300], "reason": res["reason"]}
     key = norm(res["read_as"])
