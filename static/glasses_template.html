@@ -36,12 +36,13 @@
   @keyframes bl { 50% { opacity: 0; } }
   #st { position: absolute; left: 0; bottom: calc(100% + 8px); font-size: .62em; letter-spacing: .18em; text-transform: uppercase; color: var(--green); opacity: .6; text-shadow: 0 0 6px rgba(107,255,156,.8); white-space: nowrap; }
 
-  #help { position: fixed; left: 14px; top: 12px; font-size: 12px; color: rgba(255,255,255,.7); max-width: min(520px, 90vw); line-height: 1.5; text-shadow: 0 1px 3px #000; }
+  #help { position: fixed; left: 14px; top: calc(64px + env(safe-area-inset-top)); font-size: 12px; color: rgba(255,255,255,.7); max-width: min(520px, 90vw); line-height: 1.5; text-shadow: 0 1px 3px #000; }
   #help b { color: #fff; } #help.gone { display: none; }
-  #typebox { position: fixed; left: 14px; right: 14px; bottom: 14px; display: none; gap: 8px; }
-  #typebox input { flex: 1; font: 500 18px inherit; font-family: inherit; padding: 12px; border-radius: 8px; border: 1px solid #335; background: rgba(0,0,0,.85); color: #fff; }
-  #typebox button { font: inherit; padding: 0 16px; border-radius: 8px; border: 1px solid #3a6; background: #0d2418; color: var(--green); }
-  canvas#probe, input[type=file] { display: none; }
+  #typebox { position: fixed; left: 12px; right: 12px; top: calc(12px + env(safe-area-inset-top)); display: none; gap: 8px; z-index: 9; }
+  #typebox input { flex: 1; min-width: 0; font-family: inherit; font-size: 16px; padding: 12px; border-radius: 8px; border: 1px solid #335; background: rgba(0,0,0,.85); color: #fff; }
+  #typebox button { font-family: inherit; font-size: 15px; padding: 0 16px; border-radius: 8px; border: 1px solid #3a6; background: #0d2418; color: var(--green); }
+  #dbg { position: fixed; left: 10px; top: calc(64px + env(safe-area-inset-top)); margin: 0; padding: 8px 10px; font: 12px/1.5 ui-monospace, Menlo, Consolas, monospace; color: #9fe; background: rgba(0,0,0,.7); border-radius: 8px; max-width: min(460px, 92vw); white-space: pre-wrap; z-index: 6; }
+  input[type=file] { display: none; }
 </style>
 </head>
 <body>
@@ -55,10 +56,11 @@
 <div id="help">
   <b>Glasses view.</b> You see the room; only the green text is the display.<br>
   <span id="modeLine"></span><br>
-  Keys: <b>space</b> pause · <b>↑ ↓</b> speed · <b>r</b> replay · <b>t</b> type a question · <b>b</b> dark backing · <b>f</b> show display area · <b>h</b> hide this
+  Keys: <b>space</b> pause · <b>d</b> debug · <b>↑ ↓</b> speed · <b>r</b> replay · <b>t</b> type a question · <b>b</b> dark backing · <b>f</b> show display area · <b>h</b> hide this
 </div>
 <div id="typebox"><input id="typein" placeholder="Type a question, press Enter" autocomplete="off"><button id="typego">Solve</button></div>
-<canvas id="probe"></canvas>
+<pre id="dbg" style="display:none"></pre>
+<script src="/static/detect.js"></script>
 <script>
 const SAMPLES = __SAMPLES__;
 const $ = id => document.getElementById(id), video = $("video");
@@ -105,7 +107,7 @@ function handle(r, manual = false) {
   lastStatus = r.status;
   if (r.status === "solved") { st("solving"); start(r.steps); }
   else if (r.status === "unsupported") st(manual ? "can't solve this type" : "scanning");   // stay quiet when the camera just glances at random text
-  else if (r.status === "error") st(r.reason || "error");
+  else if (r.status === "error") { st(r.reason || "error"); if (/access code/.test(r.reason || "")) { try { localStorage.removeItem("accessCode"); } catch (e) {} } }
   else if (r.status === "nothing") st("scanning");
 }
 async function ask(text) {
@@ -113,32 +115,22 @@ async function ask(text) {
   st("solving"); handle(await postJSON("/api/solve", { text }), true);
 }
 
-/* ---------------- hands-free detection (same as the main app) ---------------- */
-const W = 96, H = 72, probe = $("probe"), pctx = probe.getContext("2d", { willReadFrequently: true });
-probe.width = W; probe.height = H;
-let prev = null, lastSent = null, still = 0, bestSharp = 1, busy = false, lastSendAt = 0, lastStatus = "none";
-function thumb() { pctx.drawImage(video, 0, 0, W, H); const d = pctx.getImageData(0, 0, W, H).data, g = new Float32Array(W * H); for (let i = 0; i < g.length; i++) g[i] = .299 * d[i * 4] + .587 * d[i * 4 + 1] + .114 * d[i * 4 + 2]; return g; }
-const diff = (a, b) => { let s = 0; for (let i = 0; i < a.length; i++) s += Math.abs(a[i] - b[i]); return s / a.length; };
-const sharp = g => { let s = 0; for (let y = 0; y < H - 1; y++) for (let x = 0; x < W - 1; x++) { const i = y * W + x; s += Math.abs(g[i] - g[i + 1]) + Math.abs(g[i] - g[i + W]); } return s / g.length; };
-async function detect() {
-  if (!haveCamera || !live || video.readyState < 2 || !video.videoWidth) return;
-  const t = thumb(), s = sharp(t); bestSharp = Math.max(bestSharp * .985, s);
-  const d = prev ? diff(t, prev) : 99; prev = t; still = d < 4 ? still + 1 : 0;
-  if (busy) return;
-  if (still < 4) { if (lastStatus !== "solved") st(still ? "hold steady" : "scanning"); return; }
-  if (s < .75 * bestSharp) return;
-  const changed = !lastSent || diff(t, lastSent) > 5, stale = performance.now() - lastSendAt > (lastStatus === "solved" || lastStatus === "same" ? 12000 : 5000);
-  if (changed || stale) { lastSent = t; scan(); }
-}
-async function scan() {
-  busy = true; lastSendAt = performance.now(); st("reading");
+/* ---------------- hands-free detection (shared with the main page: static/detect.js) ---------------- */
+let det = null, lastStatus = "none", lastOcr = "";
+async function sendFrame(force) {
+  st("reading");
   try {
     const c = document.createElement("canvas"), sc = Math.min(1, 1280 / video.videoWidth); c.width = Math.round(video.videoWidth * sc); c.height = Math.round(video.videoHeight * sc);
     c.getContext("2d").drawImage(video, 0, 0, c.width, c.height);
     const blob = await new Promise(r => c.toBlob(r, "image/jpeg", .85));
-    const r = await fetch("/api/scan", { method: "POST", headers: hdr({ "Content-Type": "image/jpeg" }), body: blob }); handle(await r.json());
-  } catch (e) { st("tablet unreachable"); lastStatus = "error"; }
-  busy = false;
+    const r = await (await fetch("/api/scan", { method: "POST", headers: hdr({ "Content-Type": "image/jpeg", ...(force ? { "X-Force": "1" } : {}) }), body: blob })).json();
+    lastOcr = r.ocr || ""; handle(r, force); return r.status;
+  } catch (e) { st("tablet unreachable"); return "error"; }
+}
+function onInfo(i) {
+  if (!i.busy && lastStatus !== "solved") st(i.phase === "steady" ? "steady" : i.phase === "dark" ? "too dark" : i.phase === "focusing" ? "focusing" : i.still ? "hold steady" : "scanning");
+  const dbg = $("dbg"); if (dbg.style.display !== "none") dbg.textContent =
+    `phase    ${i.phase}\nmotion   ${i.d.toFixed(1)} (still below ${i.thr.toFixed(1)})\nstill    ${i.still} frames (need 3)\nsharp    ${i.sharp.toFixed(1)} / best ${i.best.toFixed(1)}\ncontrast ${i.contrast.toFixed(0)} (need 6)\nscans    ${i.scans}   last: ${i.last}\nOCR read: ${JSON.stringify(lastOcr).slice(0, 160)}`;
 }
 
 /* ---------------- demo mode: no server needed, sample solutions on a sample worksheet ---------------- */
@@ -157,6 +149,7 @@ document.addEventListener("keydown", e => {
   else if (e.key === "b") document.body.classList.toggle("back");
   else if (e.key === "f") document.body.classList.toggle("showfov");
   else if (e.key === "h") $("help").classList.toggle("gone");
+  else if (e.key === "d") { const d = $("dbg"); d.style.display = d.style.display === "none" ? "block" : "none"; }
   else if (e.key === "t") { $("typebox").style.display = "flex"; $("typein").focus(); e.preventDefault(); }
   else if (/^[0-9]$/.test(e.key) && !haveCamera) demo(e.key === "0" ? 9 : +e.key - 1);
 });
@@ -164,10 +157,13 @@ $("typego").onclick = () => { const v = $("typein").value.trim(); if (v) { ask(v
 
 /* ---------------- boot ---------------- */
 (async () => {
-  try { const r = await fetch("/api/status", { cache: "no-store" }); live = r.ok && (await r.json()).engine === "offline"; } catch (e) { live = false; }
+  try {
+    const r = await fetch("/api/status", { cache: "no-store" }); const j = r.ok ? await r.json() : {}; live = j.engine === "offline";
+    if (live && j.needs_code) { let c = null; try { c = localStorage.getItem("accessCode"); } catch (e) {} if (!c) { c = prompt("Access code:"); if (c) { try { localStorage.setItem("accessCode", c); } catch (e) {} } } }
+  } catch (e) { live = false; }
   if (live) {
     $("modeLine").innerHTML = "Live: point the camera at a problem and hold still. Or press <b>t</b> to type one.";
-    try { const s = await navigator.mediaDevices.getUserMedia({ video: { facingMode: { ideal: "environment" }, width: { ideal: 1920 } }, audio: false }); video.srcObject = s; await video.play(); haveCamera = true; st("scanning"); setInterval(detect, 250); }
+    try { const s = await navigator.mediaDevices.getUserMedia({ video: { facingMode: { ideal: "environment" }, width: { ideal: 1920 } }, audio: false }); video.srcObject = s; await video.play(); haveCamera = true; st("scanning"); det = LensDetect.create({ video, send: sendFrame, onInfo }); }
     catch (e) { $("paper").style.display = "block"; $("modeLine").innerHTML = "No camera here, so showing a sample sheet. Press <b>t</b> to type a question, or <b>1</b>-<b>9</b> for samples."; $("modeLine").dataset.nocam = 1; demo(0); }
   } else {
     $("paper").style.display = "block"; $("modeLine").innerHTML = "Demo mode (no server running). Press <b>1</b>-<b>9</b> and <b>0</b> to look at different problems.";

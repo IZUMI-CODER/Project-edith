@@ -5,3 +5,4 @@ eval_images/*.jpeg
 eval_images/*.png
 eval_images/cases.json
 *.pem
+last_scan.jpg

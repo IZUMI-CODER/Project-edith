@@ -15,8 +15,9 @@ INT = "∫ 2x·e^(x²) dx"
 
 
 @pytest.fixture(autouse=True)
-def fresh_sessions():
+def fresh_sessions(monkeypatch):
     engine._sessions.clear()
+    monkeypatch.setattr(engine, "SAVE_LAST", False)
 
 
 def fake_ocr(monkeypatch, *texts):
@@ -150,3 +151,13 @@ def test_glasses_page_is_served_and_built(http_server):
     s, b = call(http_server, "GET", "/glasses")
     assert s == 200 and b"Glasses view" in b and b"__SAMPLES__" not in b
     assert b"Integral, substitution" in b          # demo samples are embedded, so the file also works without a server
+
+
+def test_frames_report_what_the_ocr_read(monkeypatch, capsys):
+    fake_ocr(monkeypatch, "∫ 2x·e^(x²) dx", "random shopping list")
+    r = engine.handle_frame(b"x")
+    assert r["status"] == "solved" and "e^(x²)" in r["ocr"]
+    r = engine.handle_frame(b"x")
+    assert r["status"] == "unsupported" and r["ocr"] == "random shopping list"
+    out = capsys.readouterr().out
+    assert "[scan" in out and "unsupported" in out and "\\u222b" in out    # unicode escaped, safe for a Windows console

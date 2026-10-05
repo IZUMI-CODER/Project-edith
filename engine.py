@@ -6,10 +6,14 @@ Everything else (OCR, solving, "is this the problem I already solved?") happens 
 import difflib
 import re
 import threading
+import time
+from pathlib import Path
 
 import offline
 
 SAME_THRESHOLD = 0.9
+SAVE_LAST = True      # keep the newest frame as last_scan.jpg so you can see exactly what the camera sent
+LAST_FILE = Path(__file__).parent / "last_scan.jpg"
 
 
 def norm(s: str) -> str:
@@ -58,11 +62,21 @@ def handle_frame(image: bytes, sid: str = "default", force: bool = False) -> dic
     sess = session(sid)
     if not sess.lock.acquire(blocking=False):
         return {"status": "busy"}
+    t0 = time.time()
     try:
+        if SAVE_LAST:
+            try:
+                LAST_FILE.write_bytes(image)
+            except OSError:
+                pass
         try:
             text = offline.ocr(image)
         except offline.OCRUnavailable as e:
             return {"status": "error", "reason": str(e)}
-        return handle_text(text, sid, force)
+        res = handle_text(text, sid, force)
+        res["ocr"] = text[:300]
+        # ascii() so a Windows console never chokes on symbols like the integral sign
+        print(f"[scan {1000 * (time.time() - t0):5.0f} ms] {res['status']:<11} {len(image) // 1024} KB  ocr={ascii(text[:140])}", flush=True)
+        return res
     finally:
         sess.lock.release()

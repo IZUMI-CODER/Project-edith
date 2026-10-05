@@ -72,6 +72,7 @@
   .on #idlehelp { display:none; }
   #dock { position:absolute; right:12px; bottom:calc(12px + env(safe-area-inset-bottom)); display:flex; gap:6px; }
   .on #dock { display:none; }
+  #dbg { position:absolute; left:10px; top:56px; margin:0; padding:8px 10px; font:12px/1.5 ui-monospace,Consolas,monospace; color:#9fe; background:rgba(0,0,0,.72); border-radius:8px; max-width:min(460px,92vw); white-space:pre-wrap; z-index:9; }
   input[type=file] { display:none; }
   canvas#probe { display:none; }
 </style>
@@ -87,6 +88,7 @@
   <div id="top"><span class="chip" id="status">starting</span><span class="chip" id="badge" style="display:none"></span></div>
 
   <div id="idlehelp">Point at a problem and hold steady. It reads and solves on its own.</div>
+  <pre id="dbg" hidden></pre>
   <div id="dock"><button id="typeBtn">Type</button><button id="uploadBtn">Upload</button><button id="glassesBtn0">Glasses view</button></div>
 
   <div id="tpwrap">
@@ -106,6 +108,7 @@
   <canvas id="probe"></canvas>
 </div>
 
+<script src="/static/detect.js"></script>
 <script>
 const $ = id => document.getElementById(id);
 const app = $("app"), video = $("video");
@@ -133,56 +136,32 @@ const sendImage = (blob, force) => api("/api/scan", () => ({ method: "POST", hea
 const sendText = text => api("/api/solve", () => ({ method: "POST", headers: headers({ "Content-Type": "application/json" }), body: JSON.stringify({ text }) }));
 
 /* ---------------- camera + stillness detector ---------------- */
-const W = 96, H = 72, probe = $("probe"), pctx = probe.getContext("2d", { willReadFrequently: true });
-probe.width = W; probe.height = H;
-let prev = null, lastSent = null, still = 0, bestSharp = 1, busy = false, lastSendAt = 0, lastStatus = "none", haveCamera = false;
-const STILL_MAX = 4.0, SCENE_MIN = 5.0, NEED_STILL = 4, RECHECK_MISS = 5000, RECHECK_HIT = 12000;
-
-function thumb() {
-  pctx.drawImage(video, 0, 0, W, H);
-  const d = pctx.getImageData(0, 0, W, H).data, g = new Float32Array(W * H);
-  for (let i = 0; i < g.length; i++) g[i] = 0.299 * d[i * 4] + 0.587 * d[i * 4 + 1] + 0.114 * d[i * 4 + 2];
-  return g;
-}
-const diff = (a, b) => { let s = 0; for (let i = 0; i < a.length; i++) s += Math.abs(a[i] - b[i]); return s / a.length; };
-function sharpness(g) { let s = 0; for (let y = 0; y < H - 1; y++) for (let x = 0; x < W - 1; x++) { const i = y * W + x; s += Math.abs(g[i] - g[i + 1]) + Math.abs(g[i] - g[i + W]); } return s / g.length; }
-
+let det = null, haveCamera = false, lastStatus = "none", lastOcr = "";
 async function startCamera() {
   try {
     const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: { ideal: "environment" }, width: { ideal: 1920 } }, audio: false });
     video.srcObject = stream; await video.play(); haveCamera = true; setStatus("scanning");
-    setInterval(detect, 250);
+    det = LensDetect.create({ video, send: grabAndSend, onInfo });
   } catch (e) {
     setStatus("no camera: use Upload or Type", "warn");
     $("idlehelp").textContent = "No camera access here. Use Upload (photo) or Type. Over http on a LAN address browsers block the camera; localhost works.";
   }
 }
-
-async function detect() {
-  if (!haveCamera || video.readyState < 2 || !video.videoWidth) return;
-  const t = thumb(), s = sharpness(t);
-  bestSharp = Math.max(bestSharp * 0.985, s);
-  const d = prev ? diff(t, prev) : 99; prev = t;
-  still = d < STILL_MAX ? still + 1 : 0;
-  if (busy) return;
-  if (still < NEED_STILL) { if (lastStatus !== "solved") setStatus(still ? "hold steady" : "scanning"); return; }
-  if (s < 0.75 * bestSharp) return;                       // out of focus / blurred: wait
-  const changed = !lastSent || diff(t, lastSent) > SCENE_MIN;
-  const age = performance.now() - lastSendAt;
-  const stale = age > (lastStatus === "solved" || lastStatus === "same" ? RECHECK_HIT : RECHECK_MISS);
-  if (changed || stale) { lastSent = t; scanFrame(); }
-}
-
-async function scanFrame() {
-  busy = true; lastSendAt = performance.now(); mode("reading", true); setStatus("reading", "warn");
+async function grabAndSend(force) {
+  mode("reading", true); setStatus("reading", "warn");
   try {
     const c = document.createElement("canvas"), sc = Math.min(1, 1280 / video.videoWidth);
     c.width = Math.round(video.videoWidth * sc); c.height = Math.round(video.videoHeight * sc);
     c.getContext("2d").drawImage(video, 0, 0, c.width, c.height);
     const blob = await new Promise(r => c.toBlob(r, "image/jpeg", 0.85));
-    handle(await sendImage(blob, false));
-  } catch (e) { setStatus("tablet unreachable", "bad"); lastStatus = "error"; }
-  busy = false; mode("reading", false);
+    const r = await sendImage(blob, force); lastOcr = r.ocr || ""; handle(r, force); return r.status;
+  } catch (e) { setStatus("tablet unreachable", "bad"); return "error"; }
+  finally { mode("reading", false); }
+}
+function onInfo(i) {
+  if (!i.busy && lastStatus !== "solved") setStatus(i.phase === "steady" ? "steady" : i.phase === "dark" ? "too dark" : i.phase === "focusing" ? "focusing" : i.still ? "hold steady" : "scanning");
+  const dbg = $("dbg"); if (!dbg.hidden) dbg.textContent =
+    `phase    ${i.phase}\nmotion   ${i.d.toFixed(1)} (still below ${i.thr.toFixed(1)})\nstill    ${i.still} frames (need 3)\nsharp    ${i.sharp.toFixed(1)} / best ${i.best.toFixed(1)}\ncontrast ${i.contrast.toFixed(0)} (need 6)\nscans    ${i.scans}   last: ${i.last}\nOCR read: ${JSON.stringify(lastOcr).slice(0, 160)}`;
 }
 
 function handle(r, manual = false) {
@@ -272,6 +251,7 @@ document.addEventListener("keydown", e => {
   else if (e.key === "Escape") clearTP();
   else if (e.key === "g") toggleGlasses();
   else if (e.key === "r") $("replay").click();
+  else if (e.key === "d") $("dbg").hidden = !$("dbg").hidden;
 });
 if ("serviceWorker" in navigator) navigator.serviceWorker.register("/sw.js").catch(() => {});
 speedLabel(); startCamera();

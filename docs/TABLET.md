@@ -49,6 +49,13 @@ b dark backing, f show the display area, h hide help. No server? Double-click `d
 sample problems (keys 1-9, 0). Simulation only: it can't show real optics, brightness or focus distance. Green on a bright
 white page has weak contrast on real see-through displays; a tinted lens or a dark backing helps.
 
+## If it doesn't detect a problem
+Detection is automatic (hold still on a printed problem for ~2 s). To see why it isn't firing:
+- Look at the window running `lite_server.py`: every scan prints a line with what the OCR read, e.g. `[scan 350 ms] solved ... ocr='...'`. No lines = the page never sent a frame; lines with garbage text = the camera image is blurry/dark/too small.
+- `last_scan.jpg` (in the project folder) is the exact frame the camera last sent.
+- On the page press `d` for a live panel: motion, stillness, sharpness, contrast, and the last OCR text.
+- Tips: good light, the page flat and filling a third of the frame or more, hold the camera still for 2-3 seconds.
+
 ## 4. Display behaviour
 - Teleprompter types the solution at ~40 characters/second and scrolls on its own. Space = pause, ↑/↓ = speed, R = replay, Esc = clear.
 - "Glasses view" (key `g`) shows exactly what a 30-column, 3-line display would show.
