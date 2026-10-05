@@ -8,6 +8,7 @@ heads-up display: at most 90 characters, plain-text math.
     pip install -r requirements.txt
     ANTHROPIC_API_KEY=sk-... uvicorn server:app --port 8000   # real model
     MOCK=1 uvicorn server:app --port 8000                      # canned demo data, no key
+    OPENAI_BASE_URL=http://localhost:11434/v1 OPENAI_MODEL=llama3.2-vision uvicorn server:app   # free, local (docs/FREE.md)
     # hosting it? also set ACCESS_CODE=... (see docs/PHONE.md)
 
 Open http://localhost:8000. Keys: Space/→ next hint, ← back, A answer, C capture.
@@ -29,6 +30,9 @@ whitelisted before parsing (never `eval`'d blindly).
 ## Tests
     pip install pytest && python -m pytest -q tests     # verifier + retry/auth logic, no API key needed
     python eval.py                                       # needs a running server + API key; see eval_images/README.md
+
+## No paid key
+`docs/FREE.md`: run it with a local Ollama vision model or a free Gemini tier. Same hint ladder, same SymPy check.
 
 ## Phone and hardware
 See `docs/PHONE.md` (install as an app, HTTPS, access code) and `docs/HARDWARE.md` (camera sizing math,

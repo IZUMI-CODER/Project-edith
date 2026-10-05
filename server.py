@@ -1,9 +1,17 @@
 """Glasses Tutor backend: photo (or text) in -> read-back + hint ladder out.
 
 Run:  ANTHROPIC_API_KEY=... uvicorn server:app --port 8000
-Without a key (or with MOCK=1) it serves canned examples so the UI works offline.
+Backends (first match wins):
+  MOCK=1                      canned examples, no model
+  ANTHROPIC_API_KEY set       Anthropic API (paid)
+  OPENAI_BASE_URL set         any OpenAI-compatible vision endpoint: local Ollama (free) or a free hosted tier
+  otherwise                   mock
 """
+import json
 import os
+import re
+import urllib.error
+import urllib.request
 from pathlib import Path
 
 from fastapi import FastAPI, Header, HTTPException
@@ -14,7 +22,16 @@ from pydantic import BaseModel
 from verify import verify
 
 MODEL = os.environ.get("CLAUDE_MODEL", "claude-sonnet-5-5")
-MOCK = os.environ.get("MOCK") == "1" or not os.environ.get("ANTHROPIC_API_KEY")
+if os.environ.get("MOCK") == "1":
+    PROVIDER = "mock"
+elif os.environ.get("ANTHROPIC_API_KEY"):
+    PROVIDER = "anthropic"
+elif os.environ.get("OPENAI_BASE_URL"):
+    PROVIDER = "openai"
+else:
+    PROVIDER = "mock"
+MOCK = PROVIDER == "mock"
+OPENAI_MODEL = os.environ.get("OPENAI_MODEL", "llama3.2-vision")
 MAX_IMAGE_B64 = 7_000_000  # ~5 MB of image data
 ACCESS_CODE = os.environ.get("ACCESS_CODE")  # set when hosting, so strangers cannot spend your API credit
 
@@ -180,6 +197,76 @@ def real_response(req: TutorRequest) -> dict:
     return {**data, "verified": result["status"], "verify_note": result["note"]}
 
 
+def parse_json_loose(text: str) -> dict:
+    """Small/free models wrap JSON in prose or ``` fences; pull the first object out."""
+    text = re.sub(r"^```(?:json)?|```$", "", text.strip(), flags=re.M).strip()
+    start, end = text.find("{"), text.rfind("}")
+    if start < 0 or end < start:
+        raise ValueError("no JSON object in reply")
+    return json.loads(text[start:end + 1])
+
+
+def normalize(d: dict) -> dict:
+    """Coerce a possibly sloppy model reply into the shape the UI expects."""
+    def s(v): return v if isinstance(v, str) else ("" if v is None else str(v))
+    concepts = []
+    for c in d.get("concepts") or []:
+        if isinstance(c, dict):
+            concepts.append({"name": s(c.get("name")), "meaning": s(c.get("meaning"))})
+        else:
+            concepts.append({"name": s(c), "meaning": ""})
+    hints = d.get("hints") or []
+    if isinstance(hints, str):
+        hints = [h.strip(" -•\t") for h in hints.splitlines() if h.strip()]
+    check = d.get("check")
+    return {"read_as": s(d.get("read_as")), "subject": s(d.get("subject")) or "General",
+            "ambiguity_note": s(d.get("ambiguity_note")), "concepts": concepts,
+            "hints": [s(h) for h in hints], "final_answer": s(d.get("final_answer")),
+            "check": check if isinstance(check, dict) else {"kind": "none"}}
+
+
+def openai_chat(messages: list) -> str:
+    base = os.environ["OPENAI_BASE_URL"].rstrip("/")
+    body = {"model": OPENAI_MODEL, "messages": messages, "temperature": 0.2,
+            "response_format": {"type": "json_object"}}
+    req = urllib.request.Request(
+        base + "/chat/completions", json.dumps(body).encode(),
+        {"Content-Type": "application/json", "Authorization": "Bearer " + os.environ.get("OPENAI_API_KEY", "none")})
+    try:
+        with urllib.request.urlopen(req, timeout=300) as r:
+            return json.load(r)["choices"][0]["message"]["content"]
+    except urllib.error.HTTPError as e:
+        raise HTTPException(502, f"model server said {e.code}: {e.read()[:200].decode(errors='replace')}")
+    except (urllib.error.URLError, KeyError, ValueError) as e:
+        raise HTTPException(502, f"could not use model server at {base}: {e}")
+
+
+def openai_response(req: TutorRequest) -> dict:
+    system = SYSTEM + "\nReply with ONLY one JSON object (no prose, no code fences) matching this JSON schema:\n" \
+        + json.dumps(TOOL["input_schema"])
+    if req.text:
+        user = [{"type": "text", "text": f"Problem (user-corrected transcription):\n{req.text}"}]
+    else:
+        user = [{"type": "text", "text": "Read the problem in this image and build the hint ladder."},
+                {"type": "image_url", "image_url": {"url": f"data:{req.media_type};base64,{req.image_b64}"}}]
+    messages = [{"role": "system", "content": system}, {"role": "user", "content": user}]
+    data, result = None, {"status": "skipped", "note": ""}
+    for attempt in range(2):
+        raw = openai_chat(messages)
+        try:
+            data = normalize(parse_json_loose(raw))
+            result = verify(data.get("check"))
+            problem = f"Independent verification FAILED: {result['note']}. Re-solve carefully." if result["status"] == "fail" else None
+        except (ValueError, TypeError) as e:
+            data, result, problem = None, {"status": "skipped", "note": "unparseable reply"}, f"Your reply was not valid JSON ({e}). Reply with only the JSON object."
+        if problem is None or attempt == 1:
+            break
+        messages += [{"role": "assistant", "content": raw}, {"role": "user", "content": problem}]
+    if data is None:
+        raise HTTPException(502, "model did not return valid JSON; try a larger model")
+    return {**data, "verified": result["status"], "verify_note": result["note"]}
+
+
 app = FastAPI()
 
 
@@ -191,8 +278,9 @@ def tutor(req: TutorRequest, x_access_code: str | None = Header(default=None)):
         raise HTTPException(400, "send image_b64 or text")
     if req.image_b64 and len(req.image_b64) > MAX_IMAGE_B64:
         raise HTTPException(413, "image too large")
-    data = mock_response(req) if MOCK else real_response(req)
-    return {**data, "mock": MOCK, "model": None if MOCK else MODEL}
+    data = {"mock": mock_response, "anthropic": real_response, "openai": openai_response}[PROVIDER](req)
+    return {**data, "mock": MOCK, "provider": PROVIDER,
+            "model": {"mock": None, "anthropic": MODEL, "openai": OPENAI_MODEL}[PROVIDER]}
 
 
 @app.get("/api/config")
