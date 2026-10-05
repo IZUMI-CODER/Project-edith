@@ -334,12 +334,18 @@ def solve_integral(text: str) -> dict:
     t = text.strip()
     if re.search(r"∫\s*[_^]|from\s+-?\w+\s+to\s|definite", t, re.I):
         raise Unsupported("definite integrals aren't supported offline yet")
-    m = (re.search(r"(?:∫|integral of|integrate)\s*(.*?)\s*d([a-z])\s*$", t, re.I | re.S)
+    m = (re.search(r"(?:∫|integral\s+of|integrate)\s*:?\s*(.*?)\s*d([a-z])\s*$", t, re.I | re.S)
          or re.search(r"^[JfS]?\s*(.*?)\s*d([a-z])\s*$", t, re.S))
     if not m:
-        raise Unsupported("couldn't find the integrand and d-variable")
-    var = sp.Symbol(m.group(2))
-    f = to_sympy(strip_outer(m.group(1)))
+        m2 = re.search(r"(?:integral\s+of|integrate)\s*:?\s*(.+)$", t, re.I | re.S)
+        if not m2:
+            raise Unsupported("couldn't find the integrand and d-variable")
+        m = m2
+        var = sp.Symbol("x")
+        f = to_sympy(strip_outer(m.group(1)))
+    else:
+        var = sp.Symbol(m.group(2))
+        f = to_sympy(strip_outer(m.group(1)))
     read = f"∫ {fmt(f)} d{var}"
     F = sp.integrate(f, var)
     special = F.has(sp.Integral) or bool({a.func.__name__ for a in F.atoms(sp.Function)} & SPECIAL_FUNCS)
@@ -463,7 +469,7 @@ def _diff_steps(f, var, kind, extra, core, ans):
 def solve_derivative(text: str) -> dict:
     t = text.strip()
     m = (re.search(r"d\s*/\s*d([a-z])\s*(.+)$", t, re.S)
-         or re.search(r"(?:derivative of|differentiate)\s+(.+?)(?:\s+with respect to\s+([a-z]))?\s*$", t, re.I | re.S))
+         or re.search(r"(?:derivative\s+of|differentiate)\s*:?\s*(.+?)(?:\s+with respect to\s+([a-z]))?\s*$", t, re.I | re.S))
     if not m:
         raise Unsupported("couldn't find what to differentiate")
     if m.re.pattern.startswith("d\\s*/"):
@@ -620,12 +626,21 @@ def solve_equation(text: str) -> dict:
 
 
 # ---------------------------------------------------------------- dispatch
+FULLWIDTH = {c: c - 0xFEE0 for c in range(0xFF01, 0xFF5F)}
+FULLWIDTH[0x3000] = 0x20
+
+
+def defullwidth(text: str) -> str:
+    """OCR often returns fullwidth ASCII: （x）＝２ -> (x)=2. Superscripts like ² are left alone."""
+    return text.translate(FULLWIDTH)
+
+
 LEAD = re.compile(r"^(?:q(?:uestion)?\s*\d+\s*[:.)]|\(?\d+[.)]\s+|\([a-z]\)\s*|[a-z][.)]\s+)\s*", re.I)
 
 
 def clean_line(text: str) -> str:
     """Strip numbering ('2.', 'Q3:', '(a)') and trailing punctuation that OCR/typing leaves around a problem."""
-    t = text.strip()
+    t = defullwidth(text).strip()
     t = LEAD.sub("", t)
     return t.rstrip(".,;:!? \t")
 
@@ -676,7 +691,7 @@ class OCRUnavailable(Exception):
 def repair_ocr(text: str) -> str:
     """Fix the confusions OCR makes on maths (applied per line)."""
     out = []
-    for line in text.splitlines():
+    for line in defullwidth(text).splitlines():
         t = line.strip().replace("~", "^")
         t = re.sub(r"(?<![A-Za-z])([xyzt])(\d+)(?![\d.])", r"\1^\2", t)      # x3 -> x^3 (lost superscript)
         if re.search(r"(?:\s|\))d[xyt]\s*$", t):

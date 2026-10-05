@@ -113,3 +113,27 @@ def test_decimal_numbers_are_not_mangled():
 def test_spaceless_ocr(ocr_text, answer):
     r = offline.solve_text(offline.repair_ocr(ocr_text))
     assert r["ok"] and r["final_answer"] == answer, r
+
+
+# exact strings the user's webcam OCR produced (fullwidth brackets, colon after "of")
+@pytest.mark.parametrize("ocr_text,answer", [
+    ("Find Derivative of:\nf\uff08x\uff09=2x\xb2+2x+3", "4x + 2"),
+    ("Find Derivative of:\nf\uff08x)=2x\xb2+2x+3", "4x + 2"),
+    ("Find the derivative of: x^3", "3x²"),
+    ("Differentiate: sin(x)", "cos(x)"),
+    ("Differentiate sin(x)", "cos(x)"),
+    ("Find the integral of: 2x dx", "x² + C"),
+    ("Evaluate the integral of 3x^2", "x³ + C"),
+    ("Solve for x: 2x + 3 = 11", "x = 4"),
+    ("\uff32\uff4f\uff4f\uff54 \uff58\uff1d\uff14", None),   # junk must stay unsupported, not crash
+])
+def test_real_webcam_ocr_wordings(ocr_text, answer):
+    r = offline.solve_text(offline.repair_ocr(ocr_text))
+    if answer is None:
+        assert not r["ok"]
+    else:
+        assert r["ok"] and r["final_answer"] == answer, r
+
+
+def test_defullwidth_keeps_superscripts():
+    assert offline.defullwidth("f\uff08x\uff09\uff1d2x\xb2") == "f(x)=2x\xb2"
