@@ -1,1 +1,7 @@
 __pycache__/
+.pytest_cache/
+eval_images/*.jpg
+eval_images/*.jpeg
+eval_images/*.png
+eval_images/cases.json
+*.pem

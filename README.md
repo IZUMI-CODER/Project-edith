@@ -8,6 +8,7 @@ heads-up display: at most 90 characters, plain-text math.
     pip install -r requirements.txt
     ANTHROPIC_API_KEY=sk-... uvicorn server:app --port 8000   # real model
     MOCK=1 uvicorn server:app --port 8000                      # canned demo data, no key
+    # hosting it? also set ACCESS_CODE=... (see docs/PHONE.md)
 
 Open http://localhost:8000. Keys: Space/→ next hint, ← back, A answer, C capture.
 `CLAUDE_MODEL` overrides the model (default `claude-sonnet-5-5`).
@@ -18,7 +19,21 @@ Open http://localhost:8000. Keys: Space/→ next hint, ← back, A answer, C cap
 3. Hint ladder, one step per tap. The full answer only appears on request.
 4. "Glasses HUD sim" shows hints in a 30-column, 3-line box; red outline = hint too long.
 
+## Verification (SymPy)
+The model also returns a machine-checkable `check` (integral, derivative, equation roots, limit, electron
+count). `verify.py` re-derives it numerically (differentiates the antiderivative, substitutes the roots,
+counts electrons and Pauli capacities). If it contradicts the model, the server retries once with the failure
+fed back; the UI shows `✓ verified`, `⚠ check failed` or `unverified`. Model-written expressions are
+whitelisted before parsing (never `eval`'d blindly).
+
+## Tests
+    pip install pytest && python -m pytest -q tests     # verifier + retry/auth logic, no API key needed
+    python eval.py                                       # needs a running server + API key; see eval_images/README.md
+
+## Phone and hardware
+See `docs/PHONE.md` (install as an app, HTTPS, access code) and `docs/HARDWARE.md` (camera sizing math,
+phased build plan, non-negotiables).
+
 ## Next
-- Verify maths steps with SymPy before showing them.
 - Eval set: 50 printed + handwritten problems, track read accuracy and hint quality.
 - Port the HUD to a phone companion, then to a real monocular display module.

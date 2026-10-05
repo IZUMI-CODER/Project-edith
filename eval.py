@@ -5,7 +5,10 @@
 
 Checks per case: read-back contains expected tokens, 4-7 hints, every hint <= 90 chars,
 the final answer is not leaked into the hints, and the final answer contains the expected token.
-Add your own handwritten photos by dropping .jpg files in eval_images/ named like case ids.
+
+Your own photos: put them in eval_images/ with an eval_images/cases.json (see cases.example.json):
+    [{"id": "hw_int1", "file": "hw_int1.jpg", "read": ["2x", "e"], "answer": "e^(x²)+C"}, ...]
+They are added to the run automatically (photos stay local; .gitignore keeps them out of git).
 """
 import argparse, base64, io, json, sys, urllib.request
 from pathlib import Path
@@ -46,11 +49,27 @@ def render(text):
 def norm(s): return s.lower().replace(" ", "")
 
 
+def own_cases():
+    f = Path(__file__).parent / "eval_images" / "cases.json"
+    if not f.exists():
+        return []
+    out = []
+    for c in json.loads(f.read_text()):
+        img = f.parent / c["file"]
+        if img.exists():
+            out.append((c["id"], base64.b64encode(img.read_bytes()).decode(), c.get("read", []), c.get("answer", "")))
+        else:
+            print(f"{c['id']:12} SKIP missing {img.name}")
+    return out
+
+
 def main():
     ap = argparse.ArgumentParser(); ap.add_argument("--url", default="http://localhost:8000"); ap.add_argument("--text", action="store_true")
-    a = ap.parse_args(); passed = 0
-    for cid, text, read_tok, ans_tok in CASES:
-        body = {"text": text} if a.text else {"image_b64": render(text), "media_type": "image/jpeg"}
+    a = ap.parse_args(); passed = 0; d = {}
+    items = [(cid, ({"text": t} if a.text else {"image_b64": render(t), "media_type": "image/jpeg"}), r, an) for cid, t, r, an in CASES]
+    if not a.text:
+        items += [(cid, {"image_b64": b64, "media_type": "image/jpeg"}, r, an) for cid, b64, r, an in own_cases()]
+    for cid, body, read_tok, ans_tok in items:
         try:
             d = post(a.url, body)
         except Exception as e:
@@ -62,11 +81,12 @@ def main():
         long = [h for h in hints if len(h) > 90]
         if long: fails.append(f"{len(long)} hint(s) > 90 chars")
         if any(norm(ans_tok) in norm(h) and len(ans_tok) > 2 for h in hints): fails.append("answer leaked in hints")
-        if norm(ans_tok) not in norm(d.get("final_answer", "")): fails.append(f"answer lacks {ans_tok!r}")
+        if ans_tok and norm(ans_tok) not in norm(d.get("final_answer", "")): fails.append(f"answer lacks {ans_tok!r}")
+        if d.get("verified") == "fail": fails.append(f"self-check failed: {d.get('verify_note')}")
         passed += not fails
-        print(f"{cid:12} {'PASS' if not fails else 'FAIL ' + '; '.join(fails)}")
-    print(f"\n{passed}/{len(CASES)} passed" + ("  (mock server: failures expected)" if d.get("mock") else ""))
-    sys.exit(0 if passed == len(CASES) else 1)
+        print(f"{cid:12} {'PASS' if not fails else 'FAIL ' + '; '.join(fails)}  [{d.get('verified', '?')}]")
+    print(f"\n{passed}/{len(items)} passed" + ("  (mock server: failures expected)" if d.get("mock") else ""))
+    sys.exit(0 if passed == len(items) else 1)
 
 
 if __name__ == "__main__":

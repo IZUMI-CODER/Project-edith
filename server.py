@@ -6,14 +6,17 @@ Without a key (or with MOCK=1) it serves canned examples so the UI works offline
 import os
 from pathlib import Path
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, Header, HTTPException
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
+from verify import verify
+
 MODEL = os.environ.get("CLAUDE_MODEL", "claude-sonnet-5-5")
 MOCK = os.environ.get("MOCK") == "1" or not os.environ.get("ANTHROPIC_API_KEY")
 MAX_IMAGE_B64 = 7_000_000  # ~5 MB of image data
+ACCESS_CODE = os.environ.get("ACCESS_CODE")  # set when hosting, so strangers cannot spend your API credit
 
 HERE = Path(__file__).parent
 
@@ -36,6 +39,12 @@ linear math (x², √x, a/b), no LaTeX, no markdown.
 exclusion, Hund's rule, u-substitution), each with a one-line meaning of at most 60 \
 characters. Include known exceptions the student should watch for (e.g. Cr and Cu).
 - `final_answer` holds the complete worked result; it is only shown if the user asks.
+- `check`: when the answer is machine-checkable, fill it so the server can verify you. \
+Use ASCII SymPy syntax: x^2, exp(x), sqrt(x), sin(x), pi, implicit multiplication ok. \
+Kinds: integral (expr = integrand, result = antiderivative, e.g. "exp(x^2) + C"), \
+derivative (expr, result), equation (expr = "lhs = rhs", result = comma-separated roots), \
+limit (expr, point, result), electron_count (z, optional charge, config like "[Ar] 4s2 3d6"). \
+Use kind "none" if nothing fits, if the integral is non-elementary, or if you are unsure.
 - If the image has no readable problem, set `read_as` to "" and explain in \
 `ambiguity_note`, with an empty `hints` list.
 """
@@ -62,6 +71,20 @@ TOOL = {
             },
             "hints": {"type": "array", "items": {"type": "string"}},
             "final_answer": {"type": "string"},
+            "check": {
+                "type": "object",
+                "properties": {
+                    "kind": {"type": "string", "enum": ["integral", "derivative", "equation", "limit", "electron_count", "none"]},
+                    "expr": {"type": "string"},
+                    "result": {"type": "string"},
+                    "var": {"type": "string"},
+                    "point": {"type": "string"},
+                    "z": {"type": "integer"},
+                    "charge": {"type": "integer"},
+                    "config": {"type": "string"},
+                },
+                "required": ["kind"],
+            },
         },
         "required": ["read_as", "subject", "concepts", "hints", "final_answer"],
     },
@@ -85,6 +108,7 @@ MOCKS = {
             "Check: differentiate your result. Do you get 2x·e^(x²)?",
         ],
         "final_answer": "u = x², du = 2x dx, so ∫ e^u du = e^u + C = e^(x²) + C.",
+        "check": {"kind": "integral", "expr": "2*x*exp(x^2)", "result": "exp(x^2) + C"},
     },
     "config": {
         "read_as": "Write the electron configuration of Fe (Z = 26).",
@@ -105,6 +129,7 @@ MOCKS = {
             "Hund: draw the 3d boxes. Which one gets the paired electron?",
         ],
         "final_answer": "Fe: [Ar] 4s² 3d⁶ (3d: one paired box, four unpaired, so 4 unpaired e⁻).",
+        "check": {"kind": "electron_count", "z": 26, "config": "[Ar] 4s2 3d6"},
     },
 }
 
@@ -117,9 +142,9 @@ class TutorRequest(BaseModel):
 
 def mock_response(req: TutorRequest) -> dict:
     t = (req.text or "").lower()
-    if any(k in t for k in ("electron", "config", "fe ", "aufbau")):
-        return MOCKS["config"]
-    return MOCKS["integral"]
+    data = MOCKS["config"] if any(k in t for k in ("electron", "config", "fe ", "aufbau")) else MOCKS["integral"]
+    r = verify(data.get("check"))
+    return {**data, "verified": r["status"], "verify_note": r["note"]}
 
 
 def real_response(req: TutorRequest) -> dict:
@@ -132,31 +157,52 @@ def real_response(req: TutorRequest) -> dict:
         content.append({"type": "image", "source": {"type": "base64", "media_type": req.media_type, "data": req.image_b64}})
         content.append({"type": "text", "text": "Read the problem in this image and build the hint ladder."})
     client = anthropic.Anthropic()
-    resp = client.messages.create(
-        model=MODEL,
-        max_tokens=2500,
-        system=SYSTEM,
-        tools=[TOOL],
-        tool_choice={"type": "tool", "name": "tutor_response"},
-        messages=[{"role": "user", "content": content}],
-    )
-    for block in resp.content:
-        if block.type == "tool_use":
-            return block.input
-    raise HTTPException(502, "model returned no structured answer")
+    messages = [{"role": "user", "content": content}]
+    data, result = None, {"status": "skipped", "note": ""}
+    for attempt in range(2):  # one retry if our own check contradicts the model
+        resp = client.messages.create(
+            model=MODEL, max_tokens=2500, system=SYSTEM, tools=[TOOL],
+            tool_choice={"type": "tool", "name": "tutor_response"}, messages=messages,
+        )
+        block = next((b for b in resp.content if b.type == "tool_use"), None)
+        if block is None:
+            raise HTTPException(502, "model returned no structured answer")
+        data = block.input
+        result = verify(data.get("check"))
+        if result["status"] != "fail" or attempt == 1:
+            break
+        messages += [
+            {"role": "assistant", "content": resp.content},
+            {"role": "user", "content": [{"type": "tool_result", "tool_use_id": block.id, "is_error": True,
+                "content": f"Independent verification FAILED: {result['note']}. Re-solve carefully, "
+                           "then return corrected read_as/hints/final_answer/check."}]},
+        ]
+    return {**data, "verified": result["status"], "verify_note": result["note"]}
 
 
 app = FastAPI()
 
 
 @app.post("/api/tutor")
-def tutor(req: TutorRequest):
+def tutor(req: TutorRequest, x_access_code: str | None = Header(default=None)):
+    if ACCESS_CODE and x_access_code != ACCESS_CODE:
+        raise HTTPException(401, "access code required")
     if not req.text and not req.image_b64:
         raise HTTPException(400, "send image_b64 or text")
     if req.image_b64 and len(req.image_b64) > MAX_IMAGE_B64:
         raise HTTPException(413, "image too large")
     data = mock_response(req) if MOCK else real_response(req)
     return {**data, "mock": MOCK, "model": None if MOCK else MODEL}
+
+
+@app.get("/api/config")
+def config():
+    return {"needs_code": bool(ACCESS_CODE)}
+
+
+@app.get("/sw.js")
+def sw():
+    return FileResponse(HERE / "static" / "sw.js", media_type="text/javascript")
 
 
 @app.get("/")

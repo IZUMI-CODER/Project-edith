@@ -1,0 +1,5 @@
+[
+  {"id": "hw_int1",   "file": "hw_int1.jpg",   "read": ["2x", "e"],   "answer": "e^(x²)+C"},
+  {"id": "hw_config", "file": "hw_config.jpg", "read": ["Fe"],        "answer": "3d⁶"},
+  {"id": "hw_quad",   "file": "hw_quad.jpg",   "read": ["x²", "6"],   "answer": "3"}
+]
