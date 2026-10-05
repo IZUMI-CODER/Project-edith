@@ -1,5 +1,18 @@
 # Testing without paying
 
+## Option 0: built-in offline solver (default, nothing to install or sign up for)
+Run `uvicorn server:app --port 8000` with no key and no settings. It uses OCR (`pip install rapidocr-onnxruntime`,
+models ship inside the package) to read a photo and SymPy plus rule-based hint generation to solve.
+
+Honest scope: indefinite integrals (u-substitution / parts / standard forms, flags non-elementary ones),
+derivatives (names the rule), single-variable equations, limits, and electron configurations (exceptions
+like Cr/Cu/Pd/Au and ions like Fe2+, O2-). Word problems, physics, stoichiometry and "any question" are not
+covered; the app says so instead of guessing. Every answer is re-checked numerically (`✓ verified`).
+Printed text reads well; handwriting is weak, so use the confirm step and the **Type** button.
+Measured here: 7/10 on the built-in eval through the image path (the 3 misses are word problems).
+
+Options A and B below add a real vision model for everything else.
+
 The server speaks the common OpenAI-style chat protocol, so any vision model that offers it works.
 Set `OPENAI_BASE_URL` (and `OPENAI_MODEL`); leave `ANTHROPIC_API_KEY` unset.
 

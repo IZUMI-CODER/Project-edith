@@ -5,9 +5,10 @@ Subject-agnostic (maths, chemistry, physics, ...). Hints are written to fit a ti
 heads-up display: at most 90 characters, plain-text math.
 
 ## Run
-    pip install -r requirements.txt
+    pip install -r requirements.txt rapidocr-onnxruntime   # OCR is optional; you can always press Type
     ANTHROPIC_API_KEY=sk-... uvicorn server:app --port 8000   # real model
-    MOCK=1 uvicorn server:app --port 8000                      # canned demo data, no key
+    uvicorn server:app --port 8000                             # no key: free offline solver
+    MOCK=1 uvicorn server:app --port 8000                      # canned demo data
     OPENAI_BASE_URL=http://localhost:11434/v1 OPENAI_MODEL=llama3.2-vision uvicorn server:app   # free, local (docs/FREE.md)
     # hosting it? also set ACCESS_CODE=... (see docs/PHONE.md)
 
@@ -32,7 +33,8 @@ whitelisted before parsing (never `eval`'d blindly).
     python eval.py                                       # needs a running server + API key; see eval_images/README.md
 
 ## No paid key
-`docs/FREE.md`: run it with a local Ollama vision model or a free Gemini tier. Same hint ladder, same SymPy check.
+With no key set, the built-in offline solver runs (OCR + SymPy; calculus, equations, limits, electron configs).
+`docs/FREE.md` also covers a local Ollama vision model or a free Gemini tier for everything else.
 
 ## Phone and hardware
 See `docs/PHONE.md` (install as an app, HTTPS, access code) and `docs/HARDWARE.md` (camera sizing math,

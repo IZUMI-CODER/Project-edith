@@ -5,7 +5,7 @@ Backends (first match wins):
   MOCK=1                      canned examples, no model
   ANTHROPIC_API_KEY set       Anthropic API (paid)
   OPENAI_BASE_URL set         any OpenAI-compatible vision endpoint: local Ollama (free) or a free hosted tier
-  otherwise                   mock
+  otherwise                   offline solver (free, no model: SymPy + rule-based hints, optional OCR)
 """
 import json
 import os
@@ -29,7 +29,7 @@ elif os.environ.get("ANTHROPIC_API_KEY"):
 elif os.environ.get("OPENAI_BASE_URL"):
     PROVIDER = "openai"
 else:
-    PROVIDER = "mock"
+    PROVIDER = "offline"
 MOCK = PROVIDER == "mock"
 OPENAI_MODEL = os.environ.get("OPENAI_MODEL", "llama3.2-vision")
 MAX_IMAGE_B64 = 7_000_000  # ~5 MB of image data
@@ -267,6 +267,30 @@ def openai_response(req: TutorRequest) -> dict:
     return {**data, "verified": result["status"], "verify_note": result["note"]}
 
 
+def offline_response(req: TutorRequest) -> dict:
+    import base64
+
+    import offline
+
+    text = req.text
+    if not text:
+        try:
+            text = offline.ocr(base64.b64decode(req.image_b64))
+        except ImportError:
+            raise HTTPException(501, "No OCR installed. Run: pip install rapidocr-onnxruntime  (or press Type and enter the problem)")
+        if not text.strip():
+            return {"read_as": "", "subject": "", "concepts": [], "hints": [], "final_answer": "", "check": {"kind": "none"},
+                    "ambiguity_note": "I couldn't read any text. Try closer, flatter, in better light, or press Type.",
+                    "verified": "skipped", "verify_note": ""}
+    try:
+        data = offline.solve_safely(text)
+    except offline.Unsupported as e:
+        return {"read_as": text, "subject": "", "concepts": [], "hints": [], "final_answer": "", "check": {"kind": "none"},
+                "ambiguity_note": f"Offline solver: {e}. I read: {text}", "verified": "skipped", "verify_note": ""}
+    r = verify(data.get("check"))
+    return {**data, "verified": r["status"], "verify_note": r["note"]}
+
+
 app = FastAPI()
 
 
@@ -278,14 +302,14 @@ def tutor(req: TutorRequest, x_access_code: str | None = Header(default=None)):
         raise HTTPException(400, "send image_b64 or text")
     if req.image_b64 and len(req.image_b64) > MAX_IMAGE_B64:
         raise HTTPException(413, "image too large")
-    data = {"mock": mock_response, "anthropic": real_response, "openai": openai_response}[PROVIDER](req)
+    data = {"mock": mock_response, "anthropic": real_response, "openai": openai_response, "offline": offline_response}[PROVIDER](req)
     return {**data, "mock": MOCK, "provider": PROVIDER,
-            "model": {"mock": None, "anthropic": MODEL, "openai": OPENAI_MODEL}[PROVIDER]}
+            "model": {"mock": None, "offline": None, "anthropic": MODEL, "openai": OPENAI_MODEL}[PROVIDER]}
 
 
 @app.get("/api/config")
 def config():
-    return {"needs_code": bool(ACCESS_CODE)}
+    return {"needs_code": bool(ACCESS_CODE), "provider": PROVIDER}
 
 
 @app.get("/sw.js")

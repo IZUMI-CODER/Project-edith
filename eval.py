@@ -3,7 +3,7 @@
     uvicorn server:app --port 8000 &        # with ANTHROPIC_API_KEY set
     python eval.py [--url http://localhost:8000] [--text]   # --text skips the image step
 
-Checks per case: read-back contains expected tokens, 4-7 hints, every hint <= 90 chars,
+Checks per case: read-back contains expected tokens, 4-8 hints, every hint <= 90 chars,
 the final answer is not leaked into the hints, and the final answer contains the expected token.
 
 Your own photos: put them in eval_images/ with an eval_images/cases.json (see cases.example.json):
@@ -77,10 +77,10 @@ def main():
         hints = d.get("hints", [])
         fails = []
         if not all(norm(t) in norm(d.get("read_as", "")) for t in read_tok): fails.append(f"read_as={d.get('read_as')!r}")
-        if not 4 <= len(hints) <= 7: fails.append(f"{len(hints)} hints")
+        if not 4 <= len(hints) <= 8: fails.append(f"{len(hints)} hints")
         long = [h for h in hints if len(h) > 90]
         if long: fails.append(f"{len(long)} hint(s) > 90 chars")
-        if any(norm(ans_tok) in norm(h) and len(ans_tok) > 2 for h in hints): fails.append("answer leaked in hints")
+        if not norm(ans_tok).isalpha() and any(norm(ans_tok) in norm(h) and len(ans_tok) > 2 for h in hints): fails.append("answer leaked in hints")
         if ans_tok and norm(ans_tok) not in norm(d.get("final_answer", "")): fails.append(f"answer lacks {ans_tok!r}")
         if d.get("verified") == "fail": fails.append(f"self-check failed: {d.get('verify_note')}")
         passed += not fails

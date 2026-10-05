@@ -15,7 +15,7 @@ from sympy.parsing.sympy_parser import (
 TRANSFORMS = standard_transformations + (implicit_multiplication_application, convert_xor)
 FUNCS = {n: getattr(sp, n) for n in (
     "sin", "cos", "tan", "cot", "sec", "csc", "asin", "acos", "atan", "sinh", "cosh", "tanh",
-    "exp", "log", "sqrt", "Abs", "erf")}
+    "exp", "log", "sqrt", "Abs", "erf", "erfi", "Ei", "Si", "Ci")}
 FUNCS["ln"] = sp.log
 CONSTS = {"pi": sp.pi, "E": sp.E, "oo": sp.oo}
 PARSE_GLOBALS = {"__builtins__": {}, "Integer": sp.Integer, "Float": sp.Float, "Rational": sp.Rational,
