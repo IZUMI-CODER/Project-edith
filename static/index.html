@@ -61,9 +61,9 @@
   /* glasses view: 3 lines x 30 columns, as a tiny HUD would show */
   .glasses #tpwrap { height:auto; left:50%; right:auto; transform:translateX(-50%); bottom:calc(70px + env(safe-area-inset-bottom)); background:none; padding:0; width:auto; }
   .glasses #readas { display:none; }
-  .glasses #tp { width:calc(30ch + 40px); height:calc(3 * 1.35em + 22px); font-size:18px; background:#000; border:6px solid #111; border-radius:22px;
+  .glasses #tp { width:calc(30ch + 40px); height:calc(3 * 1.35em + 12px); font-size:18px; background:#000; border:6px solid #111; border-radius:22px;
     -webkit-mask-image:none; mask-image:none; color:var(--green); }
-  .glasses #tpin { padding:8px 14px 0 14px; }
+  .glasses #tpin { padding:0 14px; }
   .glasses .line { font-size:18px; line-height:1.35; margin:0; color:var(--green); text-shadow:0 0 6px var(--green); opacity:1; white-space:pre; }
   .glasses .line.answer { font-weight:700; }
   .glasses #bar { justify-content:center; }
@@ -239,7 +239,7 @@ function tick(now) {
 }
 function anchor(el) {
   const box = $("tp"), g = app.classList.contains("glasses");
-  const target = g ? el.offsetTop + el.offsetHeight - box.clientHeight + 6 : el.offsetTop - box.clientHeight * 0.38;
+  const target = g ? el.offsetTop + el.offsetHeight - box.clientHeight : el.offsetTop - box.clientHeight * 0.38;
   box.scrollTop = Math.max(0, target);
 }
 function finished() { setStatus("solved", "ok"); tp.els.forEach(e => e.classList.remove("cur")); }

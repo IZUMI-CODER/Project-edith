@@ -1,0 +1,237 @@
+<title>Lens HUD</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
+<style>
+  /* Layout: a viewfinder on the left looking at a worksheet, the teleprompter on the right; they stack on a phone.
+     Committed single look: a dark heads-up display, so the page sets every colour itself and does not follow the light theme. */
+  :root {
+    --ground: #05090d;      /* near-black with a blue cast */
+    --panel: #0a1319;
+    --line: #17303a;
+    --cyan: #5ff3ff;        /* scanning, UI */
+    --amber: #ffb340;       /* reading */
+    --green: #66ff9a;       /* solved, answer */
+    --red: #ff6464;
+    --text: #e4f7fa;
+    --dim: #6fa3ad;
+    --paper: #f6f3ea;
+    --ink: #1c2350;
+    --rule: #cfd9ec;
+    --mono: "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+    --sans: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    color-scheme: dark;
+  }
+  * { box-sizing: border-box; }
+  html, body { background: var(--ground); color: var(--text); }
+  body { margin: 0; font-family: var(--sans); font-size: 14px; line-height: 1.45; }
+  .page { max-width: 1240px; margin: 0 auto; padding: 18px 16px 28px; display: grid; gap: 14px; }
+  header { display: flex; flex-wrap: wrap; gap: 6px 18px; align-items: baseline; justify-content: space-between; }
+  h1 { margin: 0; font-family: var(--mono); font-weight: 600; font-size: 15px; letter-spacing: .24em; text-transform: uppercase; color: var(--cyan); }
+  .note { margin: 0; color: var(--dim); font-size: 13px; max-width: 70ch; }
+
+  .picker { display: flex; flex-wrap: wrap; gap: 8px; }
+  .pick { font: 500 12.5px/1.2 var(--sans); color: var(--text); background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 9px 12px; cursor: pointer; text-align: left; }
+  .pick:hover { border-color: var(--cyan); }
+  .pick[aria-pressed="true"] { border-color: var(--cyan); background: #0d2229; box-shadow: 0 0 0 1px var(--cyan) inset; }
+  .pick .n { font-family: var(--mono); color: var(--cyan); margin-right: 6px; }
+  .pick.no .n { color: var(--amber); }
+
+  .stage { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 14px; align-items: stretch; }
+  @media (max-width: 860px) { .stage { grid-template-columns: minmax(0, 1fr); } }
+
+  /* viewfinder */
+  .cam { position: relative; min-height: 480px; border: 1px solid var(--line); border-radius: 14px; overflow: hidden; background: #000; isolation: isolate; }
+  .desk { position: absolute; inset: 0; background: radial-gradient(ellipse at 30% 20%, #2c2a27, #0e0d0c 70%); }
+  .paper { position: absolute; inset: 9% 7% 11% 7%; background: var(--paper); border-radius: 3px; box-shadow: 0 14px 40px rgba(0,0,0,.65);
+    background-image: repeating-linear-gradient(180deg, transparent 0 33px, var(--rule) 33px 34px); transform: rotate(-.6deg); padding: 26px 22px 18px 64px; overflow: hidden;
+    transition: filter .5s, transform .5s; }
+  .paper::before { content: ""; position: absolute; left: 44px; top: 0; bottom: 0; width: 2px; background: #eb9696; }
+  .paper small { display: block; font: 500 12px/1 var(--sans); color: #6b7088; letter-spacing: .04em; margin-bottom: 22px; }
+  .paper .prob { font-family: var(--sans); font-weight: 500; color: var(--ink); font-size: clamp(22px, 3.4vw, 36px); line-height: 1.5; white-space: pre-wrap; overflow-wrap: anywhere; }
+  .paper .foot { position: absolute; left: 64px; bottom: 16px; font: 500 12px var(--sans); color: #6b7088; }
+  .shake .paper { animation: shake .55s ease-in-out infinite; filter: blur(2.6px); }
+  @keyframes shake { 0% { transform: translate(-7px, 4px) rotate(-1.6deg); } 25% { transform: translate(8px, -5px) rotate(.9deg); } 50% { transform: translate(-4px, -6px) rotate(-.2deg); } 75% { transform: translate(6px, 5px) rotate(1.1deg); } 100% { transform: translate(-7px, 4px) rotate(-1.6deg); } }
+  .vig { position: absolute; inset: 0; background: radial-gradient(ellipse at center, transparent 45%, rgba(0,0,0,.55)); pointer-events: none; z-index: 2; }
+  .corner { position: absolute; width: 38px; height: 38px; border: 2px solid var(--cyan); z-index: 3; filter: drop-shadow(0 0 6px var(--cyan)); transition: border-color .3s, filter .3s; }
+  .c1 { top: 6%; left: 5%; border-right: 0; border-bottom: 0; } .c2 { top: 6%; right: 5%; border-left: 0; border-bottom: 0; }
+  .c3 { bottom: 8%; left: 5%; border-right: 0; border-top: 0; } .c4 { bottom: 8%; right: 5%; border-left: 0; border-top: 0; }
+  .reading .corner { border-color: var(--amber); filter: drop-shadow(0 0 8px var(--amber)); }
+  .solved .corner { border-color: var(--green); filter: drop-shadow(0 0 8px var(--green)); }
+  .fail .corner { border-color: var(--red); filter: drop-shadow(0 0 8px var(--red)); }
+  .sweep { position: absolute; left: 5%; right: 5%; top: 6%; height: 3px; z-index: 3; display: none; background: linear-gradient(90deg, transparent, var(--amber), transparent); box-shadow: 0 0 22px 6px rgba(255,179,64,.5); animation: sweep 1s ease-in-out infinite alternate; }
+  .reading .sweep { display: block; }
+  @keyframes sweep { from { top: 6%; } to { top: 90%; } }
+  .chips { position: absolute; top: 12px; left: 0; right: 0; display: flex; justify-content: center; gap: 8px; flex-wrap: wrap; z-index: 4; padding: 0 12px; }
+  .chip { font: 500 11.5px/1 var(--mono); letter-spacing: .2em; text-transform: uppercase; padding: 7px 12px; border-radius: 999px; background: rgba(5,9,13,.8); border: 1px solid var(--line); color: var(--cyan); }
+  .chip.ok { color: var(--green); border-color: var(--green); } .chip.warn { color: var(--amber); border-color: var(--amber); } .chip.bad { color: var(--red); border-color: var(--red); }
+
+  /* teleprompter */
+  .tpcard { display: flex; flex-direction: column; min-height: 480px; border: 1px solid var(--line); border-radius: 14px; background: var(--panel); overflow: hidden; }
+  .readas { padding: 12px 16px 6px; color: var(--dim); font: 400 12.5px var(--mono); min-height: 2.1em; overflow-wrap: anywhere; }
+  .readas b { color: var(--text); font-weight: 500; }
+  .tp { position: relative; flex: 1; min-height: 240px; overflow: hidden; scroll-behavior: smooth; cursor: pointer;
+    -webkit-mask-image: linear-gradient(180deg, transparent 0, #000 16%); mask-image: linear-gradient(180deg, transparent 0, #000 16%); }
+  .tpin { padding: 26% 16px 40% 16px; }
+  .line { font: 500 clamp(17px, 2.1vw, 24px)/1.5 var(--mono); margin: 0 0 .6em; white-space: pre-wrap; overflow-wrap: anywhere; color: #fff; opacity: .42; transition: opacity .4s; }
+  .line.cur { opacity: 1; } .line.done { opacity: .58; }
+  .line.answer { color: var(--green); font-weight: 600; }
+  .caret::after { content: "▌"; color: var(--cyan); animation: bl .8s steps(1) infinite; }
+  @keyframes bl { 50% { opacity: 0; } }
+  .idle { position: absolute; inset: 0; display: grid; place-items: center; text-align: center; color: var(--dim); padding: 24px; font: 400 14px var(--sans); pointer-events: none; }
+  .controls { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; padding: 10px 12px; border-top: 1px solid var(--line); }
+  .controls .sp { flex: 1; }
+  button.ctl { font: 500 11.5px var(--mono); letter-spacing: .08em; text-transform: uppercase; color: var(--cyan); background: transparent; border: 1px solid var(--line); border-radius: 7px; padding: 9px 11px; min-height: 40px; cursor: pointer; }
+  button.ctl:hover { border-color: var(--cyan); }
+  button.ctl[aria-pressed="true"] { background: #0d2229; border-color: var(--cyan); }
+  .speed { font: 400 12px var(--mono); color: var(--dim); min-width: 5.4em; text-align: center; }
+  :focus-visible { outline: 2px solid var(--cyan); outline-offset: 2px; }
+
+  /* glasses view: what a 30-column, 3-line display shows */
+  .glasses .tpcard { align-items: center; justify-content: center; background: radial-gradient(ellipse at center, #0d1a20, var(--panel)); }
+  .glasses .readas { display: none; }
+  .glasses .tp { flex: none; width: calc(30ch + 40px); height: calc(3 * 1.4em + 12px); min-height: 0; font: 500 18px var(--mono); background: #000; border: 6px solid #141414; border-radius: 24px; box-shadow: 0 0 0 2px #2a2a2a, 0 18px 40px rgba(0,0,0,.6);
+    -webkit-mask-image: none; mask-image: none; margin-top: 36px; }
+  .glasses .tpin { padding: 0 14px; }
+  .glasses .line { font-size: 18px; line-height: 1.4; margin: 0; color: var(--green); opacity: 1; white-space: pre; text-shadow: 0 0 6px var(--green); }
+  .glasses .idle { display: none; }
+  .gcap { display: none; margin: 14px 0 0; color: var(--dim); font: 400 12px var(--mono); text-align: center; }
+  .glasses .gcap { display: block; }
+  .glasses .controls { margin-top: 18px; width: 100%; }
+  @media (prefers-reduced-motion: reduce) { .shake .paper, .sweep { animation: none; } .tp { scroll-behavior: auto; } .caret::after { animation: none; } }
+</style>
+
+<div class="page">
+  <header>
+    <h1>Lens HUD</h1>
+    <p class="note">Preview of the screen. These are real solver outputs for sample problems; the live app watches a camera and does the same hands-free.</p>
+  </header>
+
+  <div class="picker" id="picker" role="group" aria-label="Choose what the camera looks at"></div>
+
+  <div class="stage" id="stage">
+    <section class="cam" id="cam" aria-label="Camera view">
+      <div class="desk"></div>
+      <div class="paper" id="paper"><small>Worksheet 7</small><div class="prob" id="prob"></div><div class="foot">Show all working.</div></div>
+      <div class="vig"></div>
+      <div class="corner c1"></div><div class="corner c2"></div><div class="corner c3"></div><div class="corner c4"></div>
+      <div class="sweep"></div>
+      <div class="chips"><span class="chip" id="status" role="status">starting</span><span class="chip" id="badge" hidden></span></div>
+    </section>
+
+    <section class="tpcard" aria-label="Solution teleprompter">
+      <div class="readas" id="readas"></div>
+      <div class="tp" id="tp" title="Click to pause or resume"><div class="tpin" id="tpin"></div><div class="idle" id="idle">The solution types out here as soon as a problem is recognised.</div></div>
+      <p class="gcap">What a 30-column, 3-line lens would show</p>
+      <div class="controls">
+        <button class="ctl" id="pause">❚❚ Pause</button>
+        <button class="ctl" id="slow" aria-label="Slower">A−</button><span class="speed" id="speed"></span><button class="ctl" id="fast" aria-label="Faster">A+</button>
+        <button class="ctl" id="replay">↺ Replay</button>
+        <span class="sp"></span>
+        <button class="ctl" id="glasses" aria-pressed="false">Glasses view</button>
+      </div>
+    </section>
+  </div>
+</div>
+
+<script>
+const DATA = [{"label": "Integral, substitution", "shown": "∫ 2x·e^(x²) dx", "ok": true, "read_as": "∫ 2x·e^(x²) dx", "subject": "Calculus", "steps": ["Evaluate ∫ 2x·e^(x²) dx", "Substitution: let u = x².", "Then du = 2x dx.", "The integral becomes ∫ e^(u) du.", "Integrate in u: e^(u) + C.", "Back-substitute u = x².", "Answer: e^(x²) + C"], "verified": "pass"}, {"label": "Integral, by parts", "shown": "∫ x·cos(x) dx", "ok": true, "read_as": "∫ x·cos(x) dx", "subject": "Calculus", "steps": ["Evaluate ∫ x·cos(x) dx", "Integration by parts: ∫u dv = u·v − ∫v du.", "Let u = x, dv = cos(x) dx.", "Then du = 1 dx, v = sin(x).", "So the integral = x·sin(x) − ∫ sin(x) dx.", "The remaining integral is -cos(x).", "Answer: x·sin(x) + cos(x) + C"], "verified": "pass"}, {"label": "Derivative, chain rule", "shown": "d/dx [ sin(x³) ]", "ok": true, "read_as": "d/dx [ sin(x³) ]", "subject": "Calculus", "steps": ["Differentiate d/dx [ sin(x³) ]", "Chain rule. Outer function: sin(g), inner g = x³.", "Outer derivative: d/dg sin(g) = cos(g).", "Inner derivative: g' = 3x².", "Multiply: cos(x³) · 3x².", "Answer: 3x²cos(x³)"], "verified": "pass"}, {"label": "Derivative, quotient rule", "shown": "d/dx (x²+1)/(x−3)", "ok": true, "read_as": "d/dx [ (x² + 1)/(x - 3) ]", "subject": "Calculus", "steps": ["Differentiate d/dx [ (x² + 1)/(x - 3) ]", "Quotient rule: (u/v)' = (u'·v − u·v') / v².", "u = x² + 1, v = x - 3.", "u' = 2x, v' = 1.", "Numerator: -x² + 2x·(x - 3) - 1, over (x - 3)².", "Answer: 2x/(x - 3) - (x² + 1)/(x - 3)²"], "verified": "pass"}, {"label": "Limit, 0/0", "shown": "lim x→2  (x²−4)/(x−2)", "ok": true, "read_as": "lim x→2 of (x² - 4)/(x - 2)", "subject": "Calculus", "steps": ["Evaluate lim x→2 of (x² - 4)/(x - 2)", "Substituting x = 2 gives an indeterminate form, so simplify first.", "Cancel common factors: x + 2.", "Now substitute x = 2: 4.", "Answer: 4"], "verified": "pass"}, {"label": "Quadratic equation", "shown": "Solve  x² − 5x + 6 = 0", "ok": true, "read_as": "Solve x² - 5x + 6 = 0", "subject": "Algebra", "steps": ["Solve x² - 5x + 6 = 0", "Standard form: x² - 5x + 6 = 0.", "a = 1, b = -5, c = 6.", "Discriminant D = b² − 4ac = 1.", "D > 0: two real roots.", "x = (−b ± √D) / 2a.", "Answer: x = 2 or x = 3"], "verified": "pass"}, {"label": "Electron configuration, exception", "shown": "Write the electron configuration of Cr.", "ok": true, "read_as": "Electron configuration of Cr (Z = 24)", "subject": "Chemistry", "steps": ["Electron configuration of Cr", "Cr has Z = 24, so 24 electrons to place.", "Aufbau fill order: 1s 2s 2p 3s 3p 4s 3d.", "Fill in that order, max 2 e⁻ per orbital (s 2, p 6, d 10, f 14):", "1s² 2s² 2p⁶ 3s² 3p⁶ 4s² 3d⁴", "Exception: Cr is more stable with half-filled or full d/f subshells, so it is", "1s² 2s² 2p⁶ 3s² 3p⁶ 4s¹ 3d⁵", "Hund's rule: 4s [↑]  3d [↑][↑][↑][↑][↑]", "Unpaired electrons: 6.", "Noble-gas shorthand: [Ar] 4s¹ 3d⁵", "Answer: Cr: [Ar] 4s¹ 3d⁵"], "verified": "pass"}, {"label": "Electron configuration, ion", "shown": "Write the electron configuration of Fe²⁺.", "ok": true, "read_as": "Electron configuration of Fe2+ (Z = 26)", "subject": "Chemistry", "steps": ["Electron configuration of Fe2+", "Fe has Z = 26, so 24 electrons to place.", "Aufbau fill order: 1s 2s 2p 3s 3p 4s 3d.", "Neutral atom: 1s² 2s² 2p⁶ 3s² 3p⁶ 4s² 3d⁶", "Cation Fe2+: remove 2 e⁻ from the highest shell first (2 from 4s):", "1s² 2s² 2p⁶ 3s² 3p⁶ 3d⁶", "Hund's rule: 3d [↑↓][↑][↑][↑][↑]", "Unpaired electrons: 4.", "Noble-gas shorthand: [Ar] 3d⁶", "Answer: Fe2+: [Ar] 3d⁶"], "verified": "pass"}, {"label": "No elementary answer", "shown": "∫ e^(x²) dx", "ok": true, "read_as": "∫ e^(x²) dx", "subject": "Calculus", "steps": ["Evaluate ∫ e^(x²) dx", "This integrand has no elementary antiderivative:", "no combination of polynomials, e^x, logs and trig gives it.", "In special functions: √(π)·erfi(x)/2 + C", "Check the problem: is a factor missing (like 2x in front of e^(x²))?"], "verified": "pass"}, {"label": "Word problem (not covered)", "shown": "A ball is thrown at 20 m/s at 30° above the horizontal. Find the time of flight.", "ok": false, "reason": "this type of problem isn't covered offline yet (try a model backend, see docs/FREE.md)"}];
+const $ = id => document.getElementById(id);
+const cam = $("cam"), stage = $("stage");
+let runId = 0, cur = -1;
+
+/* ---------- picker ---------- */
+DATA.forEach((d, i) => {
+  const b = document.createElement("button");
+  b.className = "pick" + (d.ok ? "" : " no"); b.setAttribute("aria-pressed", "false");
+  b.innerHTML = '<span class="n">' + (i + 1) + '</span>';
+  b.append(d.label); b.onclick = () => run(i); $("picker").appendChild(b);
+});
+const picks = () => [...document.querySelectorAll(".pick")];
+
+/* ---------- status helpers ---------- */
+function status(text, cls = "") { const c = $("status"); c.textContent = text; c.className = "chip " + cls; }
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+function camMode(m) { for (const k of ["shake", "reading", "solved", "fail"]) cam.classList.toggle(k, k === m); }
+
+/* ---------- the hands-free sequence ---------- */
+async function run(i) {
+  const my = ++runId; cur = i; const d = DATA[i];
+  picks().forEach((b, k) => b.setAttribute("aria-pressed", k === i ? "true" : "false"));
+  stopTP(); $("badge").hidden = true; $("readas").innerHTML = ""; $("idle").style.display = "";
+  const quick = matchMedia("(prefers-reduced-motion: reduce)").matches ? 0.4 : 1;
+  $("prob").textContent = (i + 1) + ")  " + d.shown; $("paper").scrollTop = 0;
+  camMode("shake"); status("scanning");                    await sleep(750 * quick); if (my !== runId) return;
+  status("hold steady"); camMode("shake");                 await sleep(650 * quick); if (my !== runId) return;
+  camMode("reading"); status("reading", "warn");           await sleep(1250 * quick); if (my !== runId) return;
+  if (!d.ok) { camMode("fail"); status("can't solve this type yet", "bad"); $("idle").textContent = "Not covered by the offline solver: word problems, physics and stoichiometry. It says so instead of guessing."; return; }
+  $("idle").textContent = "The solution types out here as soon as a problem is recognised.";
+  camMode("solved"); status("solving", "ok");
+  $("readas").innerHTML = "I read: <b></b>"; $("readas").querySelector("b").textContent = d.read_as;
+  const bd = $("badge"); bd.hidden = false; bd.textContent = d.verified === "pass" ? "✓ verified" : "unverified"; bd.className = "chip " + (d.verified === "pass" ? "ok" : "");
+  startTP(d.steps);
+}
+
+/* ---------- teleprompter ---------- */
+const tp = { steps: [], texts: [], els: [], i: 0, ch: 0, cps: 40, paused: false, running: false, hold: 0, acc: 0, last: 0, cols: 0 };
+function wrap(text, cols) {
+  if (!cols) return text;
+  const out = []; let line = "";
+  for (let w of text.split(" ")) {
+    while (w.length > cols) { if (line) { out.push(line); line = ""; } out.push(w.slice(0, cols)); w = w.slice(cols); }
+    if (!line) line = w; else if ((line + " " + w).length <= cols) line += " " + w; else { out.push(line); line = w; }
+  }
+  if (line) out.push(line); return out.join("\n");
+}
+const isAnswer = s => /^Answer/.test(s || "");
+function build() {
+  const box = $("tpin"); box.innerHTML = ""; tp.els = []; tp.texts = tp.steps.map(s => wrap(s, tp.cols));
+  tp.steps.forEach(s => { const d = document.createElement("div"); d.className = "line" + (isAnswer(s) ? " answer" : ""); box.appendChild(d); tp.els.push(d); });
+}
+function startTP(steps) {
+  tp.steps = steps; tp.cols = stage.classList.contains("glasses") ? 30 : 0; tp.i = 0; tp.ch = 0; tp.hold = .2; tp.acc = 0; tp.paused = false;
+  $("pause").textContent = "❚❚ Pause"; $("idle").style.display = "none"; build(); label();
+  tp.running = true; tp.last = performance.now(); requestAnimationFrame(tick);
+}
+function stopTP() { tp.running = false; tp.steps = []; $("tpin").innerHTML = ""; }
+function tick(now) {
+  if (!tp.running) return;
+  const dt = Math.min(.1, (now - tp.last) / 1000); tp.last = now;
+  if (!tp.paused && tp.i < tp.steps.length) {
+    if (tp.hold > 0) tp.hold -= dt;
+    else {
+      tp.acc += dt * tp.cps; const n = Math.floor(tp.acc); tp.acc -= n;
+      const txt = tp.texts[tp.i]; tp.ch = Math.min(txt.length, tp.ch + n);
+      tp.els.forEach((e, k) => { e.classList.toggle("cur", k === tp.i); e.classList.toggle("done", k < tp.i); });
+      const el = tp.els[tp.i]; el.textContent = txt.slice(0, tp.ch); el.classList.add("caret"); anchor(el);
+      if (tp.ch >= txt.length) { el.classList.remove("caret"); tp.i++; tp.ch = 0; tp.hold = isAnswer(tp.steps[tp.i]) ? .7 : .35; if (tp.i >= tp.steps.length) { status("solved", "ok"); tp.els.forEach(e => e.classList.remove("cur")); } }
+    }
+  }
+  requestAnimationFrame(tick);
+}
+function anchor(el) {
+  const box = $("tp"), g = stage.classList.contains("glasses");
+  box.scrollTop = Math.max(0, g ? el.offsetTop + el.offsetHeight - box.clientHeight : el.offsetTop - box.clientHeight * .38);
+}
+const label = () => { $("speed").textContent = Math.round(tp.cps) + " ch/s"; };
+$("pause").onclick = () => { tp.paused = !tp.paused; $("pause").textContent = tp.paused ? "▶ Resume" : "❚❚ Pause"; };
+$("tp").onclick = () => $("pause").click();
+$("slow").onclick = () => { tp.cps = Math.max(8, tp.cps / 1.25); label(); };
+$("fast").onclick = () => { tp.cps = Math.min(200, tp.cps * 1.25); label(); };
+$("replay").onclick = () => { if (cur >= 0 && DATA[cur].ok) { status("solving", "ok"); startTP(DATA[cur].steps); } };
+function toggleGlasses() {
+  const on = !stage.classList.contains("glasses"); stage.classList.toggle("glasses", on); $("glasses").setAttribute("aria-pressed", String(on));
+  $("glasses").textContent = on ? "Normal view" : "Glasses view";
+  if (tp.steps.length) { const i = tp.i, ch = tp.ch; tp.cols = on ? 30 : 0; build(); tp.texts.forEach((t, k) => { if (k < i) tp.els[k].textContent = t; }); tp.i = Math.min(i, tp.steps.length - 1); tp.ch = Math.min(ch, tp.texts[tp.i].length); }
+}
+$("glasses").onclick = toggleGlasses;
+document.addEventListener("keydown", e => {
+  if (e.target.tagName === "BUTTON" && e.key === " ") return;
+  if (e.key === " ") { e.preventDefault(); $("pause").click(); }
+  else if (e.key === "ArrowUp" || e.key === "+") $("fast").click();
+  else if (e.key === "ArrowDown" || e.key === "-") $("slow").click();
+  else if (e.key === "g") toggleGlasses();
+  else if (e.key === "r") $("replay").click();
+  else if (/^[0-9]$/.test(e.key)) { const n = e.key === "0" ? 9 : +e.key - 1; if (DATA[n]) run(n); }
+});
+label(); run(0);
+</script>
