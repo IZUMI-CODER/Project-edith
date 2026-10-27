@@ -30,10 +30,10 @@ it remembers it. The same name always gives the same code.
    private: anyone who has it can push to your app.
 
 ### 2. Build the APK
-**Option A, GitHub builds it:** repo **Settings → Secrets and variables → Actions → New secret**,
-name `GOOGLE_SERVICES_JSON`, value = the whole contents of google-services.json. Then
-**Actions → Build Edith Alert APK → Run workflow**. When it finishes, download `edith-alert-apk`
-from the run's page (it's a zip containing `app-debug.apk`).
+**Option A, GitHub builds it:** commit google-services.json as `alert-system/android/app/google-services.json`
+(it ships inside every APK, so it isn't a secret), or put its contents in a repository secret named
+`GOOGLE_SERVICES_JSON`. Every push that touches `alert-system/android/` builds the app. When it finishes,
+download `edith-alert-apk` from the run's page (it's a zip containing `app-debug.apk`).
 
 **Option B, Android Studio:** put google-services.json in `alert-system/android/app/`, open
 `alert-system/android`, then **Build → Build APK(s)**.

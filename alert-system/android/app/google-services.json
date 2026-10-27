@@ -1,0 +1,48 @@
+{
+  "project_info": {
+    "project_number": "259907382487",
+    "project_id": "alert-system-e4f8b",
+    "storage_bucket": "alert-system-e4f8b.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:259907382487:android:ff1b132e9f46d172759492",
+        "android_client_info": {
+          "package_name": "com.projectedith.aler"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyBtXwkjQUbIDJtAJOJ_G5Fj_QvW-H9e_yI"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    },
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:259907382487:android:28b5d5d9330e756f759492",
+        "android_client_info": {
+          "package_name": "com.projectedith.alert"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyBtXwkjQUbIDJtAJOJ_G5Fj_QvW-H9e_yI"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

@@ -30,6 +30,8 @@ jobs:
           if [ -n "$GOOGLE_SERVICES_JSON" ]; then
             printf '%s' "$GOOGLE_SERVICES_JSON" > app/google-services.json
             echo "REAL_FIREBASE=1" >> "$GITHUB_ENV"
+          elif [ -f app/google-services.json ]; then
+            echo "REAL_FIREBASE=1" >> "$GITHUB_ENV"
           else
             cp ci/google-services.placeholder.json app/google-services.json
             echo "::warning::GOOGLE_SERVICES_JSON secret is not set, so this build only checks the code compiles. The APK would not receive alerts and is not uploaded."
