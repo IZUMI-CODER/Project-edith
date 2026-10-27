@@ -26,7 +26,7 @@
   section { background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 16px; margin: 12px 0; }
   h2 { font-size: 15px; margin: 0 0 10px; color: var(--muted); font-weight: 600; text-transform: uppercase; letter-spacing: .04em; }
   .row { display: flex; gap: 8px; }
-  input[type=text], textarea { width: 100%; font: inherit; color: inherit; background: var(--bg);
+  input[type=text], input[type=password], textarea { width: 100%; font: inherit; color: inherit; background: var(--bg);
          border: 1px solid var(--line); border-radius: 10px; padding: 11px 12px; }
   textarea { resize: vertical; min-height: 70px; }
   button { font: inherit; border: 0; border-radius: 10px; padding: 11px 14px; cursor: pointer; white-space: nowrap; }
@@ -55,6 +55,16 @@
 <body>
 <main>
   <header><h1>🚨 Edith Alert</h1><span id="who"></span></header>
+
+  <section id="login" style="display:none">
+    <h2>Sign in once</h2>
+    <form id="loginform">
+      <input type="text" id="sender" maxlength="40" placeholder="Your name (shown on the alarm)" autocomplete="name">
+      <input type="password" id="password" placeholder="Sender password" autocomplete="current-password" style="margin-top:8px">
+      <button class="secondary" type="submit" style="width:100%;margin-top:8px">Save on this device</button>
+    </form>
+    <div class="hint" style="margin-top:8px">This device remembers it, so you won't be asked again.</div>
+  </section>
 
   <section>
     <h2>Phones</h2>
@@ -123,14 +133,42 @@ function render() {
   $("send").disabled = $("stop").disabled = n === 0;
 }
 
+function getPref(k) {
+  try { return localStorage.getItem(k) || ""; } catch { return ""; }
+}
+function setPref(k, v) {
+  try { v ? localStorage.setItem(k, v) : localStorage.removeItem(k); } catch {}
+}
+
 async function api(path, body) {
-  const res = await fetch(path, body ? {
-    method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body),
-  } : {});
+  const headers = { "x-edith-password": getPref("edith.password"), "x-edith-sender": getPref("edith.sender") };
+  if (body) headers["content-type"] = "application/json";
+  const res = await fetch(path, body ? { method: "POST", headers, body: JSON.stringify(body) } : { headers });
   let data = {};
   try { data = await res.json(); } catch {}
+  if (res.status === 401 && data.auth === "password") {
+    $("login").style.display = "block";
+    $("sender").value = getPref("edith.sender");
+    (getPref("edith.sender") ? $("password") : $("sender")).focus();
+  }
   if (!res.ok && !data.sent) throw new Error(data.error || `HTTP ${res.status}`);
   return data;
+}
+
+$("loginform").onsubmit = (e) => {
+  e.preventDefault();
+  setPref("edith.sender", $("sender").value.trim());
+  setPref("edith.password", $("password").value);
+  $("password").value = "";
+  whoami();
+};
+
+function whoami() {
+  api("/api/me").then((d) => {
+    $("login").style.display = "none";
+    show("");
+    $("who").textContent = d.email;
+  }).catch((e) => show("✗ " + e.message, "bad"));
 }
 
 function show(text, cls) {
@@ -186,7 +224,7 @@ async function send(type) {
 $("send").onclick = () => send("alert");
 $("stop").onclick = () => send("stop");
 
-api("/api/me").then((d) => ($("who").textContent = d.email)).catch((e) => show("✗ " + e.message, "bad"));
+whoami();
 render();
 </script>
 </body>

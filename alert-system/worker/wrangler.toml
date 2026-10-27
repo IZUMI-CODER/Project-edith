@@ -11,9 +11,10 @@ binding = "ASSETS"
 [observability]
 enabled = true
 
-# Set all four with `npx wrangler secret put NAME` (secrets survive redeploys;
-# plain dashboard variables would be wiped by the next `wrangler deploy`). See ../README.md.
+# Set these with `npx wrangler secret put NAME` (secrets survive redeploys). See ../README.md.
 #   CODE_SECRET          random string; changing it invalidates every phone's code
 #   FCM_SERVICE_ACCOUNT  Firebase service-account JSON, piped in whole
+#   SEND_PASSWORD        shared sender password (8+ chars), asked once per device
+# Optional, instead of SEND_PASSWORD (email login via Cloudflare Access, up to 50 users free):
 #   ACCESS_TEAM_DOMAIN   e.g. myteam.cloudflareaccess.com
 #   ACCESS_AUD           the Access application's "Audience (AUD) tag"

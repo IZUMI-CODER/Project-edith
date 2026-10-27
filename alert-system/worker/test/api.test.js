@@ -65,9 +65,9 @@ test("stop messages and partial failures", async () => {
   assert.ok(sends.every((m) => m.data.type === "stop"));
 });
 
-test("refuses to run without Cloudflare Access configured", async () => {
+test("refuses to run with no sender protection configured", async () => {
   await assert.rejects(handleApi(post("/api/code", { name: "x" }), { CODE_SECRET: env.CODE_SECRET }),
-    (e) => e instanceof HttpError && e.status === 500 && /Access is not configured/.test(e.message));
+    (e) => e instanceof HttpError && e.status === 500 && /SEND_PASSWORD/.test(e.message));
   await assert.rejects(handleApi(post("/api/code", { name: "x" }), { ...env, DEV_NO_AUTH: undefined, ACCESS_TEAM_DOMAIN: "t", ACCESS_AUD: "a" }),
     (e) => e.status === 401);
 });
@@ -80,4 +80,26 @@ test("input validation and cross-site protection", async () => {
   await bad(post("/api/send", { names: ["a"] }, { origin: "https://evil.example" }), 403);
   await bad(new Request("https://edith.example.workers.dev/api/send", { method: "POST", body: "names=a" }), 415);
   await assert.rejects(handleApi(post("/api/code", { name: "x" }), { ...env, CODE_SECRET: "short" }), (e) => e.status === 500);
+});
+
+test("shared sender password", async () => {
+  const pwEnv = { ...env, DEV_NO_AUTH: undefined, SEND_PASSWORD: "correct horse battery" };
+  const me = (h) => handleApi(new Request("https://edith.example.workers.dev/api/me", { headers: h }), pwEnv);
+  await assert.rejects(me({}), (e) => e.status === 401 && e.extra.auth === "password" && /needed/.test(e.message));
+  await assert.rejects(me({ "x-edith-password": "correct horse batterY" }), (e) => e.status === 401 && /wrong/.test(e.message));
+  const ok = await (await me({ "x-edith-password": "correct horse battery", "x-edith-sender": "  Mohammed  " })).json();
+  assert.deepEqual(ok, { email: "Mohammed", auth: "password" });
+
+  const { sends, fetchImpl } = mockGoogle();
+  await handleApi(post("/api/send", { names: ["Sara"] }, { "x-edith-password": "correct horse battery" }), pwEnv, fetchImpl);
+  assert.equal(sends[0].data.from, "Sender");
+
+  await assert.rejects(handleApi(new Request("https://e.workers.dev/api/me", { headers: { "x-edith-password": "abc" } }), { ...pwEnv, SEND_PASSWORD: "abc" }),
+    (e) => e.status === 500 && /at least 8/.test(e.message));
+});
+
+test("Cloudflare Access takes priority over the password", async () => {
+  const both = { ...env, DEV_NO_AUTH: undefined, SEND_PASSWORD: "correct horse battery", ACCESS_TEAM_DOMAIN: "t", ACCESS_AUD: "a" };
+  await assert.rejects(handleApi(new Request("https://e.workers.dev/api/me", { headers: { "x-edith-password": "correct horse battery" } }), both),
+    (e) => e.status === 401 && !e.extra.auth);
 });

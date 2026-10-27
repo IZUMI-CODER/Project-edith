@@ -5,8 +5,8 @@ loud siren, even on silent, until someone taps **Dismiss**. Similar to an Amber 
 
 ```
 Sender's browser ──► Cloudflare Worker ──► Firebase Cloud Messaging ──► Edith Alert APK
- (behind Cloudflare     (free; signs the        (free; only the push       (alarm stream at max
-  Access login)          pairing codes)          part, no database)         volume, full-screen)
+ (asks the sender       (free; signs the        (free; only the push       (alarm stream at max
+  password once)         pairing codes)          part, no database)         volume, full-screen)
 ```
 
 **No database.** Each phone's code is `HMAC(CODE_SECRET, name)`. Only your Worker can create a valid
@@ -52,20 +52,20 @@ npx wrangler secret put FCM_SERVICE_ACCOUNT < path/to/service-account.json
 ```
 Keep `CODE_SECRET` the same from then on: **changing it changes every phone's code.**
 
-### 4. Lock the website with Cloudflare Access (Zero Trust, free for 50 users)
-1. In the Cloudflare dashboard go to **Workers & Pages → edith-alert → Settings → Domains & Routes**.
-   On the `workers.dev` row, enable **Cloudflare Access**. If asked, create a Zero Trust team; the free plan is fine.
-2. Under **Zero Trust → Access → Applications**, edit that application's policy so that only your senders'
-   emails are allowed. They log in with a one-time code sent to their email.
-3. From the application's settings, copy the **Audience (AUD) tag** and your team domain
-   (`<team>.cloudflareaccess.com`), then store them as secrets so redeploys keep them:
-   ```bash
-   npx wrangler secret put ACCESS_TEAM_DOMAIN
-   npx wrangler secret put ACCESS_AUD
-   ```
+### 4. Set the sender password
+```bash
+npx wrangler secret put SEND_PASSWORD
+```
+Pick something long (8+ characters, a short sentence is good). Each sender types it **once** on their
+phone or computer along with their name; the browser remembers it after that. To lock everyone out,
+set a new password with the same command.
 
-The Worker refuses to do anything until these are set, and it checks the Access login signature on every
-request itself, so it isn't relying only on the dashboard setting.
+The site refuses to send anything until a password is set. Anyone who has the password can sound the
+alarm, so share it only with senders.
+
+*Optional instead:* email login through Cloudflare Access (Zero Trust, free for 50 users). Enable
+Access on the Worker's workers.dev domain, then set `ACCESS_TEAM_DOMAIN` and `ACCESS_AUD` as secrets.
+When those are set they replace the password.
 
 ### 5. Set up each phone
 1. Open the website, type the person's name under **Add a phone** and press **Get code**.

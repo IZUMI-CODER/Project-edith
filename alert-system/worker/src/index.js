@@ -13,26 +13,48 @@ function json(body, status = 200) {
 }
 
 class HttpError extends Error {
-  constructor(status, message) {
+  constructor(status, message, extra = {}) {
     super(message);
     this.status = status;
+    this.extra = extra;
   }
 }
 
+async function sameSecret(a, b) {
+  // Compare digests so the time taken doesn't reveal how much of the password matched.
+  const enc = new TextEncoder();
+  const [x, y] = await Promise.all([a, b].map(async (s) =>
+    new Uint8Array(await crypto.subtle.digest("SHA-256", enc.encode(s)))));
+  let diff = 0;
+  for (let i = 0; i < x.length; i++) diff |= x[i] ^ y[i];
+  return diff === 0;
+}
+
+// Returns who is sending. Cloudflare Access (if configured) wins; otherwise a shared
+// sender password that the page asks for once and remembers. With neither, refuse.
 async function authenticate(request, env, fetchImpl) {
   if (env.DEV_NO_AUTH === "true") return "dev@localhost";
-  if (!env.ACCESS_TEAM_DOMAIN || !env.ACCESS_AUD) {
-    throw new HttpError(500, "Cloudflare Access is not configured (ACCESS_TEAM_DOMAIN / ACCESS_AUD). Refusing to run unprotected.");
+  if (env.ACCESS_TEAM_DOMAIN && env.ACCESS_AUD) {
+    try {
+      return await verifyAccessJwt(
+        request.headers.get("cf-access-jwt-assertion"),
+        { teamDomain: env.ACCESS_TEAM_DOMAIN, aud: env.ACCESS_AUD },
+        fetchImpl,
+      );
+    } catch (e) {
+      throw new HttpError(401, e.message);
+    }
   }
-  try {
-    return await verifyAccessJwt(
-      request.headers.get("cf-access-jwt-assertion"),
-      { teamDomain: env.ACCESS_TEAM_DOMAIN, aud: env.ACCESS_AUD },
-      fetchImpl,
-    );
-  } catch (e) {
-    throw new HttpError(401, e.message);
+  if (env.SEND_PASSWORD) {
+    if (env.SEND_PASSWORD.length < 8) throw new HttpError(500, "SEND_PASSWORD must be at least 8 characters.");
+    const given = request.headers.get("x-edith-password") || "";
+    if (!given || !(await sameSecret(given, env.SEND_PASSWORD))) {
+      throw new HttpError(401, given ? "wrong password" : "password needed", { auth: "password" });
+    }
+    const sender = (request.headers.get("x-edith-sender") || "").trim().replace(/\s+/g, " ").slice(0, 40);
+    return sender || "Sender";
   }
+  throw new HttpError(500, "No sender protection set. Run: npx wrangler secret put SEND_PASSWORD");
 }
 
 function requireSecret(env) {
@@ -96,7 +118,7 @@ export async function handleApi(request, env, fetchImpl = fetch) {
   const email = await authenticate(request, env, fetchImpl);
 
   if (pathname === "/api/me" && request.method === "GET") {
-    return json({ email });
+    return json({ email, auth: env.ACCESS_TEAM_DOMAIN && env.ACCESS_AUD ? "access" : "password" });
   }
 
   if (pathname === "/api/code" && request.method === "POST") {
@@ -133,7 +155,7 @@ export default {
     try {
       return await handleApi(request, env);
     } catch (e) {
-      if (e instanceof HttpError) return json({ error: e.message }, e.status);
+      if (e instanceof HttpError) return json({ error: e.message, ...e.extra }, e.status);
       console.error(e);
       return json({ error: "internal error" }, 500);
     }
