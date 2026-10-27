@@ -18,3 +18,12 @@ enabled = true
 # Optional, instead of SEND_PASSWORD (email login via Cloudflare Access, up to 50 users free):
 #   ACCESS_TEAM_DOMAIN   e.g. myteam.cloudflareaccess.com
 #   ACCESS_AUD           the Access application's "Audience (AUD) tag"
+
+# Direct phone connections (see src/hub.js). Free plan needs SQLite-backed classes.
+[[durable_objects.bindings]]
+name = "HUB"
+class_name = "AlertHub"
+
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["AlertHub"]

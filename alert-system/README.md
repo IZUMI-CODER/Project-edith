@@ -78,6 +78,18 @@ When those are set they replace the password.
 
 ---
 
+## How alerts reach the phone (two routes)
+Every alert goes out two ways, and the phone rings on whichever arrives first:
+1. **Direct link.** The app keeps a WebSocket open to your site (`/api/listen`, a free Cloudflare Durable
+   Object). The site pings every phone every 30 s, so Wi-Fi extenders and routers that silently drop
+   "idle" connections never see it as idle. When you send, the site shows **📶 Connected right now** for
+   phones on this link.
+2. **Google push (FCM).** Reaches phones whose direct link is down. It can be lost on Wi-Fi extenders,
+   because Google's own connection only checks in every ~15 minutes.
+
+The app's address for the direct link is `edith.serverUrl` in `android/gradle.properties`. Change it
+if your site has a different address, then push to rebuild the APK.
+
 ## Good to know
 - **"Sent" means Google accepted the alert**, not that the phone rang. Without a database there are no
   read receipts. Alerts expire after 10 minutes, so a phone that was off doesn't ring hours later.

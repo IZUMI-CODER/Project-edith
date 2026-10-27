@@ -155,7 +155,8 @@ class MainActivity : Activity() {
 
     private fun showLastReceived() {
         val lines = Prefs.history(this)
-        findViewById<TextView>(R.id.lastReceived).text =
+        val link = if (Prefs.code(this) == null) "" else "Direct link to website: ${Prefs.directStatus}\n"
+        findViewById<TextView>(R.id.lastReceived).text = link +
             if (lines.isEmpty()) "No alerts received on this phone yet."
             else "Recent alerts (newest first):\n" + lines.joinToString("\n")
     }

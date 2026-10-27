@@ -27,6 +27,17 @@ object Prefs {
     fun history(ctx: Context): List<String> =
         prefs(ctx).getString("history", "").orEmpty().split("\n").filter { it.isNotBlank() }
 
+    /** Remembers alert ids; returns false if this one was already handled. */
+    fun markSeen(ctx: Context, id: String): Boolean {
+        val seen = prefs(ctx).getString("seen_ids", "").orEmpty().split(",").filter { it.isNotBlank() }
+        if (id in seen) return false
+        prefs(ctx).edit().putString("seen_ids", (listOf(id) + seen).take(30).joinToString(",")).apply()
+        return true
+    }
+
+    @Volatile
+    var directStatus: String = "starting…"
+
     fun clock(at: Long): String = SimpleDateFormat("HH:mm:ss", Locale.US).format(Date(at))
 
     private fun save(ctx: Context, lines: List<String>) {

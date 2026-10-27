@@ -1,6 +1,6 @@
 import { test, beforeEach } from "node:test";
 import assert from "node:assert/strict";
-import { handleApi, HttpError } from "../src/index.js";
+import { handleApi, handleListen, HttpError } from "../src/index.js";
 import { codeForName, topicForCode } from "../src/codes.js";
 import { _resetTokenCache } from "../src/fcm.js";
 import { rsaKeyPair, pkcs8Pem } from "./helpers.js";
@@ -43,7 +43,7 @@ test("send pushes a high-priority data message to each phone's topic", async () 
   const res = await handleApi(post("/api/send", { names: ["Sara", "sara", "Ali"], message: "Fire drill" }), env, fetchImpl);
   const body = await res.json();
   assert.equal(res.status, 200);
-  assert.deepEqual(body, { sent: ["Sara", "Ali"], failed: [] });
+  assert.deepEqual(body, { sent: ["Sara", "Ali"], failed: [], online: [] });
   assert.equal(sends.length, 2);
   const saraTopic = await topicForCode(await codeForName(env.CODE_SECRET, "Sara"));
   const sara = sends.find((m) => m.topic === saraTopic); // sends run in parallel, order varies
@@ -105,4 +105,48 @@ test("Cloudflare Access takes priority over the password", async () => {
   const both = { ...env, DEV_NO_AUTH: undefined, SEND_PASSWORD: "correct horse battery", ACCESS_TEAM_DOMAIN: "t", ACCESS_AUD: "a" };
   await assert.rejects(handleApi(new Request("https://e.workers.dev/api/me", { headers: { "x-edith-password": "correct horse battery" } }), both),
     (e) => e.status === 401 && !e.extra.auth);
+});
+
+function mockHub(connectedTopics) {
+  const calls = [];
+  return {
+    calls,
+    idFromName: (n) => n,
+    get: () => ({
+      fetch: async (url, init) => {
+        if (typeof url === "string" && url.endsWith("/broadcast")) {
+          const { topics, data } = JSON.parse(init.body);
+          calls.push({ topics, data });
+          return Response.json(Object.fromEntries(topics.map((t) => [t, connectedTopics.includes(t) ? 1 : 0])));
+        }
+        calls.push({ listen: url.url ?? url });
+        return new Response("upgraded");
+      },
+    }),
+  };
+}
+
+test("alerts go down the direct link too, and a connected phone counts as sent even if Google fails", async () => {
+  const sara = await topicForCode(await codeForName(env.CODE_SECRET, "Sara"));
+  const ali = await topicForCode(await codeForName(env.CODE_SECRET, "Ali"));
+  const HUB = mockHub([sara]);
+  const { fetchImpl } = mockGoogle([sara, ali]); // Google fails for both
+  const res = await handleApi(post("/api/send", { names: ["Sara", "Ali"], message: "Up" }), { ...env, HUB }, fetchImpl);
+  const body = await res.json();
+  assert.deepEqual(body.sent, ["Sara"]);
+  assert.deepEqual(body.online, ["Sara"]);
+  assert.equal(body.failed[0].name, "Ali");
+  assert.deepEqual(HUB.calls[0].topics, [sara, ali]);
+  assert.equal(HUB.calls[0].data.message, "Up");
+});
+
+test("listen endpoint validates before handing the socket to the hub", async () => {
+  const HUB = mockHub([]);
+  const topic = await topicForCode(await codeForName(env.CODE_SECRET, "Sara"));
+  const ws = (q, h = { upgrade: "websocket" }) => handleListen(new Request(`https://e.workers.dev/api/listen?${q}`, { headers: h }), { HUB });
+  assert.equal((await ws(`topic=${topic}`, {})).status, 426);
+  assert.equal((await ws("topic=edith-nothex")).status, 400);
+  assert.equal((await handleListen(new Request(`https://e/api/listen?topic=${topic}`, { headers: { upgrade: "websocket" } }), {})).status, 503);
+  assert.equal(await (await ws(`topic=${topic}`)).text(), "upgraded");
+  assert.match(HUB.calls[0].listen, new RegExp(`/listen\\?topic=${topic}$`));
 });

@@ -12,8 +12,14 @@ android {
         applicationId = "com.projectedith.alert"
         minSdk = 26
         targetSdk = 35
-        versionCode = 1
-        versionName = "1.0"
+        versionCode = 2
+        versionName = "1.1"
+        // The sender website, for the direct link (set in gradle.properties).
+        buildConfigField("String", "SERVER_URL", "\"${project.findProperty("edith.serverUrl") ?: ""}\"")
+    }
+
+    buildFeatures {
+        buildConfig = true
     }
 
     // CI keeps one key in its cache so updates install over the previous APK.
@@ -47,5 +53,6 @@ android {
 dependencies {
     implementation(platform("com.google.firebase:firebase-bom:33.7.0"))
     implementation("com.google.firebase:firebase-messaging")
+    implementation("com.squareup.okhttp3:okhttp:4.12.0")
     testImplementation("junit:junit:4.13.2")
 }

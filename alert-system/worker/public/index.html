@@ -213,6 +213,10 @@ async function send(type) {
   try {
     const r = await api("/api/send", { type, names, message });
     let text = r.sent.length ? `✓ Sent to ${r.sent.join(", ")}` : "";
+    const online = r.online || [];
+    const offline = r.sent.filter((n) => !online.includes(n));
+    if (online.length) text += `\n📶 Connected right now: ${online.join(", ")}`;
+    if (offline.length) text += `\n⏳ Not connected right now (sent via Google, may be late): ${offline.join(", ")}`;
     if (r.failed.length) text += `\n✗ Failed: ${r.failed.map((f) => `${f.name} (${f.error})`).join("; ")}`;
     show(text.trim(), r.failed.length ? "bad" : "good");
   } catch (err) {
