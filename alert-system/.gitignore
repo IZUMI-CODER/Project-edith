@@ -8,3 +8,4 @@ build/
 local.properties
 .idea/
 *.iml
+worker/public/*.apk
