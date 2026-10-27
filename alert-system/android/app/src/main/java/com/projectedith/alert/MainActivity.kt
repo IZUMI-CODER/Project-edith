@@ -18,6 +18,9 @@ import android.provider.Settings
 import android.view.View
 import android.widget.Button
 import android.widget.EditText
+import android.widget.RadioButton
+import android.widget.RadioGroup
+import android.widget.SeekBar
 import android.widget.TextView
 import android.widget.Toast
 import com.google.firebase.messaging.FirebaseMessaging
@@ -55,6 +58,7 @@ class MainActivity : Activity() {
             open(Intent(Settings.ACTION_NOTIFICATION_POLICY_ACCESS_SETTINGS))
         }
         findViewById<Button>(R.id.battery).setOnClickListener { requestBatteryExemption() }
+        setUpSoundControls()
 
         // Re-assert the subscription on every launch; it is idempotent.
         Prefs.topic(this)?.let { topic ->
@@ -151,6 +155,38 @@ class MainActivity : Activity() {
         )
         setItem(R.id.dnd, "Ring during Do Not Disturb", nm.isNotificationPolicyAccessGranted)
         setItem(R.id.battery, "Ignore battery saving", pm.isIgnoringBatteryOptimizations(packageName))
+    }
+
+    private fun setUpSoundControls() {
+        val group = findViewById<RadioGroup>(R.id.soundGroup)
+        val current = Prefs.sound(this)
+        Sounds.CHOICES.forEachIndexed { i, (key, title) ->
+            group.addView(RadioButton(this).apply {
+                id = 1000 + i
+                text = title
+                isChecked = key == current
+            })
+        }
+        group.setOnCheckedChangeListener { _, checked ->
+            Sounds.CHOICES.getOrNull(checked - 1000)?.let { Prefs.setSound(this, it.first) }
+        }
+
+        val label = findViewById<TextView>(R.id.volumeLabel)
+        val bar = findViewById<SeekBar>(R.id.volume)
+        bar.progress = Prefs.volume(this)
+        label.text = "Volume: ${bar.progress}%"
+        bar.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
+            override fun onProgressChanged(seekBar: SeekBar, value: Int, fromUser: Boolean) {
+                label.text = "Volume: $value%"
+                if (fromUser) Prefs.setVolume(this@MainActivity, value)
+            }
+            override fun onStartTrackingTouch(seekBar: SeekBar) {}
+            override fun onStopTrackingTouch(seekBar: SeekBar) {}
+        })
+
+        findViewById<Button>(R.id.preview).setOnClickListener {
+            Sounds.preview(this, Prefs.sound(this), Sounds.gain(Prefs.volume(this)))
+        }
     }
 
     private fun showLastReceived() {

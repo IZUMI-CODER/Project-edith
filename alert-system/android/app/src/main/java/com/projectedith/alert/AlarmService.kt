@@ -164,7 +164,7 @@ class AlarmService : Service() {
             .also { audio.requestAudioFocus(it) }
 
         try {
-            track = Siren.create(attrs).also { it.play() }
+            track = Sounds.create(attrs, Prefs.sound(this), Sounds.gain(Prefs.volume(this))).also { it.play() }
         } catch (e: Exception) {
             Log.w(TAG, "siren failed, falling back to the system alarm sound", e)
             try {
@@ -172,7 +172,7 @@ class AlarmService : Service() {
                     setAudioAttributes(attrs)
                     setDataSource(this@AlarmService, RingtoneManager.getDefaultUri(RingtoneManager.TYPE_ALARM))
                     isLooping = true
-                    setVolume(Siren.GAIN, Siren.GAIN)
+                    Sounds.gain(Prefs.volume(this@AlarmService)).let { setVolume(it, it) }
                     prepare()
                     start()
                 }

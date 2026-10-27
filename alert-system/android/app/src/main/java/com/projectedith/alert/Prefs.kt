@@ -44,6 +44,15 @@ object Prefs {
         prefs(ctx).edit().putString("history", lines.joinToString("\n")).apply()
     }
 
+    fun sound(ctx: Context): String = prefs(ctx).getString("sound", "chime") ?: "chime"
+
+    fun setSound(ctx: Context, sound: String) = prefs(ctx).edit().putString("sound", sound).apply()
+
+    /** Alarm volume in percent (5..100); 50 is about 20 dB below full. */
+    fun volume(ctx: Context): Int = prefs(ctx).getInt("volume", 50)
+
+    fun setVolume(ctx: Context, percent: Int) = prefs(ctx).edit().putInt("volume", percent).apply()
+
     fun setCode(ctx: Context, code: String?) {
         prefs(ctx).edit().apply { if (code == null) remove("code") else putString("code", Codes.normalize(code)) }.apply()
     }
