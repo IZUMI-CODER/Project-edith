@@ -172,6 +172,7 @@ class AlarmService : Service() {
                     setAudioAttributes(attrs)
                     setDataSource(this@AlarmService, RingtoneManager.getDefaultUri(RingtoneManager.TYPE_ALARM))
                     isLooping = true
+                    setVolume(Siren.GAIN, Siren.GAIN)
                     prepare()
                     start()
                 }

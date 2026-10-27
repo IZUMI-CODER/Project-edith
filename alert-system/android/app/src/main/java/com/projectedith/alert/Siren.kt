@@ -10,6 +10,9 @@ import kotlin.math.sin
 object Siren {
     private const val RATE = 44100
 
+    /** Playback gain: -10 dB (about half as loud to the ear). 1.0 = full volume. */
+    const val GAIN = 0.316f
+
     fun create(attrs: AudioAttributes): AudioTrack {
         val samples = wail()
         val track = AudioTrack.Builder()
@@ -29,7 +32,7 @@ object Siren {
         }
         track.write(samples, 0, samples.size)
         track.setLoopPoints(0, samples.size, -1)
-        track.setVolume(AudioTrack.getMaxVolume())
+        track.setVolume(GAIN)
         return track
     }
 
