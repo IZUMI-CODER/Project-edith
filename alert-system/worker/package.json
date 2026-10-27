@@ -4,7 +4,9 @@
   "type": "module",
   "scripts": {
     "test": "node --test test/*.test.js",
+    "setup-local": "node scripts/local-setup.mjs",
     "dev": "wrangler dev",
+    "dev:lan": "wrangler dev --ip 0.0.0.0",
     "deploy": "wrangler deploy"
   },
   "devDependencies": {
