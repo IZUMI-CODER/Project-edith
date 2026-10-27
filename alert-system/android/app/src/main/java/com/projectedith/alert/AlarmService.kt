@@ -55,9 +55,10 @@ class AlarmService : Service() {
                 .putExtra(AlertActivity.EXTRA_MESSAGE, message)
                 .putExtra(AlertActivity.EXTRA_FROM, from)
                 .putExtra(AlertActivity.EXTRA_SENT_AT, sentAt)
+            val already = isRinging
             try {
                 ctx.startForegroundService(intent)
-                return "ringing"
+                return if (already) "already ringing, message updated" else "ringing"
             } catch (e: Exception) {
                 // Android 12+ refuses background starts unless the push kept its high
                 // priority. An alarm-clock alarm is always allowed to start the alarm, and

@@ -10,9 +10,11 @@ class AlertMessagingService : FirebaseMessagingService() {
         val data = message.data
         // Google downgrades "high" to "normal" for apps whose urgent pushes showed nothing;
         // a downgraded push can't start the alarm service from the background.
+        val sentAt = data["sent_at"]?.toLongOrNull()
+        val sent = sentAt?.let { "sent ${Prefs.clock(it)}, ${(System.currentTimeMillis() - it) / 1000}s late, " }.orEmpty()
         Prefs.recordReceived(
             this,
-            "${data["type"] ?: "?"}, priority ${priorityName(message.priority)} (sent ${priorityName(message.originalPriority)})",
+            "${data["type"] ?: "?"} ($sent${priorityName(message.priority)}/${priorityName(message.originalPriority)} priority)",
         )
 
         val topic = Prefs.topic(this) ?: return Prefs.recordOutcome(this, "ignored: phone not paired")

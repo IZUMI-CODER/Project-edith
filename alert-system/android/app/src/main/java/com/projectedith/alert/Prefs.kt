@@ -1,6 +1,9 @@
 package com.projectedith.alert
 
 import android.content.Context
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 
 object Prefs {
     private fun prefs(ctx: Context) = ctx.getSharedPreferences("edith", Context.MODE_PRIVATE)
@@ -9,25 +12,25 @@ object Prefs {
 
     fun topic(ctx: Context): String? = code(ctx)?.let { Codes.topic(it) }
 
-    /** Diagnostics: what the last push looked like and what the app did with it. */
+    /** Diagnostics: the last few pushes and what the app did with each, newest first. */
     fun recordReceived(ctx: Context, summary: String) {
-        prefs(ctx).edit()
-            .putLong("last_at", System.currentTimeMillis())
-            .putString("last_summary", summary)
-            .putString("last_outcome", "")
-            .apply()
+        val line = "${clock(System.currentTimeMillis())} got: $summary → …"
+        save(ctx, (listOf(line) + history(ctx)).take(5))
     }
 
     fun recordOutcome(ctx: Context, outcome: String) {
-        prefs(ctx).edit().putString("last_outcome", outcome).apply()
+        val lines = history(ctx).toMutableList()
+        if (lines.isNotEmpty() && lines[0].endsWith("→ …")) lines[0] = lines[0].removeSuffix("…") + outcome
+        save(ctx, lines)
     }
 
-    fun lastReceived(ctx: Context): Pair<Long, String>? {
-        val p = prefs(ctx)
-        val at = p.getLong("last_at", 0L)
-        if (at == 0L) return null
-        val outcome = p.getString("last_outcome", "").orEmpty()
-        return at to (p.getString("last_summary", "").orEmpty() + if (outcome.isBlank()) "" else " → $outcome")
+    fun history(ctx: Context): List<String> =
+        prefs(ctx).getString("history", "").orEmpty().split("\n").filter { it.isNotBlank() }
+
+    fun clock(at: Long): String = SimpleDateFormat("HH:mm:ss", Locale.US).format(Date(at))
+
+    private fun save(ctx: Context, lines: List<String>) {
+        prefs(ctx).edit().putString("history", lines.joinToString("\n")).apply()
     }
 
     fun setCode(ctx: Context, code: String?) {

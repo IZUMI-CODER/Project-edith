@@ -15,14 +15,12 @@ import android.os.Handler
 import android.os.Looper
 import android.os.PowerManager
 import android.provider.Settings
-import android.text.format.DateFormat
 import android.view.View
 import android.widget.Button
 import android.widget.EditText
 import android.widget.TextView
 import android.widget.Toast
 import com.google.firebase.messaging.FirebaseMessaging
-import java.util.Date
 
 /** Pairing and the one-time permission checklist. */
 class MainActivity : Activity() {
@@ -154,11 +152,10 @@ class MainActivity : Activity() {
     }
 
     private fun showLastReceived() {
-        findViewById<TextView>(R.id.lastReceived).text = Prefs.lastReceived(this)?.let { (at, detail) ->
-            val time = DateFormat.getTimeFormat(this).format(Date(at))
-            val day = DateFormat.getDateFormat(this).format(Date(at))
-            "Last alert received: $day $time\n$detail"
-        } ?: "No alerts received on this phone yet."
+        val lines = Prefs.history(this)
+        findViewById<TextView>(R.id.lastReceived).text =
+            if (lines.isEmpty()) "No alerts received on this phone yet."
+            else "Recent alerts (newest first):\n" + lines.joinToString("\n")
     }
 
     private fun setItem(id: Int, label: String, ok: Boolean) {
