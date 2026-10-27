@@ -7,11 +7,15 @@ import com.google.firebase.messaging.RemoteMessage
 class AlertMessagingService : FirebaseMessagingService() {
 
     override fun onMessageReceived(message: RemoteMessage) {
-        // Only react to this phone's own topic; anything else is ignored.
-        val topic = Prefs.topic(this) ?: return
-        if (message.from != "/topics/$topic") return
-
         val data = message.data
+        Prefs.recordReceived(this, data["type"].orEmpty(), message.from.orEmpty())
+
+        val topic = Prefs.topic(this) ?: return
+        // Skip leftovers from a topic this phone used before re-pairing. Only reject a
+        // clearly different topic, so an unexpected "from" format can't block real alerts.
+        val from = message.from
+        if (from != null && from.contains("/topics/") && !from.endsWith("/topics/$topic")) return
+
         when (data["type"]) {
             "alert" -> AlarmService.start(
                 this,

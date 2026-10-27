@@ -11,14 +11,18 @@ import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
 import android.os.PowerManager
 import android.provider.Settings
+import android.text.format.DateFormat
 import android.view.View
 import android.widget.Button
 import android.widget.EditText
 import android.widget.TextView
 import android.widget.Toast
 import com.google.firebase.messaging.FirebaseMessaging
+import java.util.Date
 
 /** Pairing and the one-time permission checklist. */
 class MainActivity : Activity() {
@@ -55,12 +59,32 @@ class MainActivity : Activity() {
         findViewById<Button>(R.id.battery).setOnClickListener { requestBatteryExemption() }
 
         // Re-assert the subscription on every launch; it is idempotent.
-        Prefs.topic(this)?.let { FirebaseMessaging.getInstance().subscribeToTopic(it) }
+        Prefs.topic(this)?.let { topic ->
+            FirebaseMessaging.getInstance().subscribeToTopic(topic).addOnCompleteListener { task ->
+                if (!task.isSuccessful) {
+                    Toast.makeText(this, "Can't reach Google's push service: ${task.exception?.message}", Toast.LENGTH_LONG).show()
+                }
+            }
+        }
+    }
+
+    private val handler = Handler(Looper.getMainLooper())
+    private val ticker = object : Runnable {
+        override fun run() {
+            showLastReceived() // keeps it live while testing
+            handler.postDelayed(this, 2000)
+        }
     }
 
     override fun onResume() {
         super.onResume()
         refresh()
+        handler.post(ticker)
+    }
+
+    override fun onPause() {
+        handler.removeCallbacks(ticker)
+        super.onPause()
     }
 
     override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<out String>, grantResults: IntArray) {
@@ -110,6 +134,7 @@ class MainActivity : Activity() {
         } else {
             "Not paired yet. Enter the code from the Edith Alert website."
         }
+        showLastReceived()
         findViewById<View>(R.id.pairSection).visibility = if (code == null) View.VISIBLE else View.GONE
         findViewById<View>(R.id.unpair).visibility = if (code != null) View.VISIBLE else View.GONE
 
@@ -126,6 +151,14 @@ class MainActivity : Activity() {
         )
         setItem(R.id.dnd, "Ring during Do Not Disturb", nm.isNotificationPolicyAccessGranted)
         setItem(R.id.battery, "Ignore battery saving", pm.isIgnoringBatteryOptimizations(packageName))
+    }
+
+    private fun showLastReceived() {
+        findViewById<TextView>(R.id.lastReceived).text = Prefs.lastReceived(this)?.let { (at, type, from) ->
+            val time = DateFormat.getTimeFormat(this).format(Date(at))
+            val day = DateFormat.getDateFormat(this).format(Date(at))
+            "Last alert received: $day $time (${type.ifBlank { "?" }}, via ${from.ifBlank { "?" }})"
+        } ?: "No alerts received on this phone yet."
     }
 
     private fun setItem(id: Int, label: String, ok: Boolean) {
