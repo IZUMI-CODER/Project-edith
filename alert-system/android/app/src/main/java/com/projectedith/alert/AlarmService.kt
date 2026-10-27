@@ -1,6 +1,8 @@
 package com.projectedith.alert
 
+import android.app.AlarmManager
 import android.app.NotificationManager
+import android.app.PendingIntent
 import android.app.Service
 import android.content.Context
 import android.content.Intent
@@ -45,7 +47,8 @@ class AlarmService : Service() {
         /** Set by AlertActivity so it can close when the alarm stops from anywhere. */
         var onStopped: (() -> Unit)? = null
 
-        fun start(ctx: Context, message: String, from: String, sentAt: Long) {
+        /** Starts ringing; returns what happened, for the diagnostics line. */
+        fun start(ctx: Context, message: String, from: String, sentAt: Long): String {
             val info = AlertInfo(message, from, sentAt)
             val intent = Intent(ctx, AlarmService::class.java)
                 .setAction(ACTION_START)
@@ -54,11 +57,38 @@ class AlarmService : Service() {
                 .putExtra(AlertActivity.EXTRA_SENT_AT, sentAt)
             try {
                 ctx.startForegroundService(intent)
+                return "ringing"
             } catch (e: Exception) {
-                // Android 12+ can refuse a background start. Fall back to a full-screen
-                // notification whose screen starts the alarm once it is showing.
-                Log.w(TAG, "foreground start refused, using full-screen fallback", e)
+                // Android 12+ refuses background starts unless the push kept its high
+                // priority. An alarm-clock alarm is always allowed to start the alarm, and
+                // the full-screen notification is a second way in.
+                Log.w(TAG, "foreground start refused, using alarm-clock fallback", e)
+                val viaAlarm = ringViaAlarmClock(ctx, intent, info)
                 Notifications.showFallback(ctx, info)
+                return if (viaAlarm) {
+                    "background start blocked, ringing via alarm clock"
+                } else {
+                    "background start blocked (${e.javaClass.simpleName}), alarm clock not allowed, showed notification"
+                }
+            }
+        }
+
+        private fun ringViaAlarmClock(ctx: Context, intent: Intent, info: AlertInfo): Boolean {
+            val am = ctx.getSystemService(AlarmManager::class.java)
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && !am.canScheduleExactAlarms()) return false
+            return try {
+                val ring = PendingIntent.getForegroundService(
+                    ctx, 10, intent, PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
+                )
+                val show = PendingIntent.getActivity(
+                    ctx, 11, AlertActivity.intent(ctx, info, startAlarm = false),
+                    PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
+                )
+                am.setAlarmClock(AlarmManager.AlarmClockInfo(System.currentTimeMillis() + 1000, show), ring)
+                true
+            } catch (e: Exception) {
+                Log.w(TAG, "alarm-clock fallback failed", e)
+                false
             }
         }
 

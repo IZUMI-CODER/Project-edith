@@ -154,10 +154,10 @@ class MainActivity : Activity() {
     }
 
     private fun showLastReceived() {
-        findViewById<TextView>(R.id.lastReceived).text = Prefs.lastReceived(this)?.let { (at, type, from) ->
+        findViewById<TextView>(R.id.lastReceived).text = Prefs.lastReceived(this)?.let { (at, detail) ->
             val time = DateFormat.getTimeFormat(this).format(Date(at))
             val day = DateFormat.getDateFormat(this).format(Date(at))
-            "Last alert received: $day $time (${type.ifBlank { "?" }}, via ${from.ifBlank { "?" }})"
+            "Last alert received: $day $time\n$detail"
         } ?: "No alerts received on this phone yet."
     }
 
