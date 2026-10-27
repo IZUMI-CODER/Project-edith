@@ -1,0 +1,4 @@
+# Copy to .dev.vars for `npm run dev` (local only; never deployed).
+DEV_NO_AUTH=true
+CODE_SECRET=change-me-to-a-long-random-string
+FCM_SERVICE_ACCOUNT={"project_id":"...","client_email":"...","private_key":"-----BEGIN PRIVATE KEY-----\n...\n-----END PRIVATE KEY-----\n"}

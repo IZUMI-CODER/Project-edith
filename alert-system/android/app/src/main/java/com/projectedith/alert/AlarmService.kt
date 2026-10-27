@@ -1,0 +1,190 @@
+package com.projectedith.alert
+
+import android.app.NotificationManager
+import android.app.Service
+import android.content.Context
+import android.content.Intent
+import android.content.pm.ServiceInfo
+import android.media.AudioAttributes
+import android.media.AudioFocusRequest
+import android.media.AudioManager
+import android.media.AudioTrack
+import android.media.MediaPlayer
+import android.media.RingtoneManager
+import android.os.Build
+import android.os.Handler
+import android.os.IBinder
+import android.os.Looper
+import android.os.PowerManager
+import android.os.VibrationEffect
+import android.os.Vibrator
+import android.os.VibratorManager
+import android.util.Log
+
+/**
+ * Rings until dismissed (or for MAX_RING_MS). Plays on the alarm stream, which the
+ * silent/vibrate switch doesn't mute, turns that stream to max, and with Do Not Disturb
+ * access lets alarms through DND for as long as it rings. Everything is restored after.
+ */
+class AlarmService : Service() {
+
+    companion object {
+        const val ACTION_START = "com.projectedith.alert.START"
+        const val ACTION_STOP = "com.projectedith.alert.STOP"
+        private const val MAX_RING_MS = 10 * 60 * 1000L
+        private const val TAG = "AlarmService"
+
+        @Volatile
+        var isRinging = false
+            private set
+
+        @Volatile
+        var current: AlertInfo? = null
+            private set
+
+        /** Set by AlertActivity so it can close when the alarm stops from anywhere. */
+        var onStopped: (() -> Unit)? = null
+
+        fun start(ctx: Context, message: String, from: String, sentAt: Long) {
+            val info = AlertInfo(message, from, sentAt)
+            val intent = Intent(ctx, AlarmService::class.java)
+                .setAction(ACTION_START)
+                .putExtra(AlertActivity.EXTRA_MESSAGE, message)
+                .putExtra(AlertActivity.EXTRA_FROM, from)
+                .putExtra(AlertActivity.EXTRA_SENT_AT, sentAt)
+            try {
+                ctx.startForegroundService(intent)
+            } catch (e: Exception) {
+                // Android 12+ can refuse a background start. Fall back to a full-screen
+                // notification whose screen starts the alarm once it is showing.
+                Log.w(TAG, "foreground start refused, using full-screen fallback", e)
+                Notifications.showFallback(ctx, info)
+            }
+        }
+
+        fun stop(ctx: Context) {
+            ctx.stopService(Intent(ctx, AlarmService::class.java))
+            ctx.getSystemService(NotificationManager::class.java).cancel(Notifications.ALARM_ID)
+        }
+    }
+
+    private val handler = Handler(Looper.getMainLooper())
+    private val timeout = Runnable { stopSelf() }
+    private val attrs = AudioAttributes.Builder()
+        .setUsage(AudioAttributes.USAGE_ALARM)
+        .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
+        .build()
+
+    private var track: AudioTrack? = null
+    private var player: MediaPlayer? = null
+    private var vibrator: Vibrator? = null
+    private var wakeLock: PowerManager.WakeLock? = null
+    private var focusRequest: AudioFocusRequest? = null
+    private var savedVolume: Int? = null
+    private var savedFilter: Int? = null
+
+    override fun onBind(intent: Intent?): IBinder? = null
+
+    override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        if (intent?.action != ACTION_START) {
+            stopSelf()
+            return START_NOT_STICKY
+        }
+        val info = AlertInfo(
+            intent.getStringExtra(AlertActivity.EXTRA_MESSAGE).orEmpty().ifBlank { "EMERGENCY ALERT" },
+            intent.getStringExtra(AlertActivity.EXTRA_FROM).orEmpty(),
+            intent.getLongExtra(AlertActivity.EXTRA_SENT_AT, System.currentTimeMillis()),
+        )
+        current = info
+        Notifications.ensureChannel(this)
+        val notification = Notifications.build(this, info, startAlarm = false)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            startForeground(Notifications.ALARM_ID, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PLAYBACK)
+        } else {
+            startForeground(Notifications.ALARM_ID, notification)
+        }
+        if (!isRinging) startRinging()
+        handler.removeCallbacks(timeout)
+        handler.postDelayed(timeout, MAX_RING_MS)
+        return START_NOT_STICKY
+    }
+
+    private fun startRinging() {
+        isRinging = true
+        val audio = getSystemService(AudioManager::class.java)
+        val nm = getSystemService(NotificationManager::class.java)
+
+        if (nm.isNotificationPolicyAccessGranted && alarmsBlockedByDnd(nm)) {
+            savedFilter = nm.currentInterruptionFilter
+            nm.setInterruptionFilter(NotificationManager.INTERRUPTION_FILTER_ALARMS)
+        }
+
+        try {
+            savedVolume = audio.getStreamVolume(AudioManager.STREAM_ALARM)
+            audio.setStreamVolume(AudioManager.STREAM_ALARM, audio.getStreamMaxVolume(AudioManager.STREAM_ALARM), 0)
+        } catch (e: SecurityException) {
+            Log.w(TAG, "could not raise alarm volume", e)
+            savedVolume = null
+        }
+
+        focusRequest = AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN_TRANSIENT)
+            .setAudioAttributes(attrs)
+            .build()
+            .also { audio.requestAudioFocus(it) }
+
+        try {
+            track = Siren.create(attrs).also { it.play() }
+        } catch (e: Exception) {
+            Log.w(TAG, "siren failed, falling back to the system alarm sound", e)
+            try {
+                player = MediaPlayer().apply {
+                    setAudioAttributes(attrs)
+                    setDataSource(this@AlarmService, RingtoneManager.getDefaultUri(RingtoneManager.TYPE_ALARM))
+                    isLooping = true
+                    prepare()
+                    start()
+                }
+            } catch (e2: Exception) {
+                Log.e(TAG, "no alarm sound available", e2)
+            }
+        }
+
+        val v = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            getSystemService(VibratorManager::class.java).defaultVibrator
+        } else {
+            getSystemService(Vibrator::class.java)
+        }
+        // Deprecated on API 33, but the AudioAttributes overload is what marks it as an alarm buzz.
+        v.vibrate(VibrationEffect.createWaveform(longArrayOf(0, 800, 400), 0), attrs)
+        vibrator = v
+
+        wakeLock = getSystemService(PowerManager::class.java)
+            .newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "edith:alarm")
+            .apply { acquire(MAX_RING_MS + 60_000) }
+    }
+
+    private fun alarmsBlockedByDnd(nm: NotificationManager): Boolean = when (nm.currentInterruptionFilter) {
+        NotificationManager.INTERRUPTION_FILTER_NONE -> true
+        NotificationManager.INTERRUPTION_FILTER_PRIORITY ->
+            Build.VERSION.SDK_INT >= Build.VERSION_CODES.P &&
+                nm.notificationPolicy.priorityCategories and NotificationManager.Policy.PRIORITY_CATEGORY_ALARMS == 0
+        else -> false
+    }
+
+    override fun onDestroy() {
+        handler.removeCallbacks(timeout)
+        track?.run { runCatching { stop() }; release() }
+        player?.run { runCatching { stop() }; release() }
+        vibrator?.cancel()
+        val audio = getSystemService(AudioManager::class.java)
+        savedVolume?.let { runCatching { audio.setStreamVolume(AudioManager.STREAM_ALARM, it, 0) } }
+        focusRequest?.let { audio.abandonAudioFocusRequest(it) }
+        val nm = getSystemService(NotificationManager::class.java)
+        savedFilter?.let { if (nm.isNotificationPolicyAccessGranted) runCatching { nm.setInterruptionFilter(it) } }
+        wakeLock?.let { if (it.isHeld) it.release() }
+        isRinging = false
+        current = null
+        onStopped?.invoke()
+        super.onDestroy()
+    }
+}

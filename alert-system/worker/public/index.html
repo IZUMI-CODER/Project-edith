@@ -1,0 +1,193 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="theme-color" content="#b91c1c">
+<title>Edith Alert</title>
+<style>
+  :root {
+    --bg: #f5f5f4; --card: #ffffff; --text: #1c1917; --muted: #78716c; --line: #e7e5e4;
+    --red: #dc2626; --red-dark: #991b1b; --ok: #15803d; --chip: #f5f5f4;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg: #0c0a09; --card: #1c1917; --text: #fafaf9; --muted: #a8a29e; --line: #292524;
+            --red: #ef4444; --red-dark: #7f1d1d; --ok: #4ade80; --chip: #292524; }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text);
+         font: 16px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+         padding: env(safe-area-inset-top) 16px calc(24px + env(safe-area-inset-bottom)); }
+  main { max-width: 520px; margin: 0 auto; }
+  header { display: flex; justify-content: space-between; align-items: baseline; padding: 18px 0 8px; }
+  h1 { font-size: 22px; margin: 0; }
+  #who { color: var(--muted); font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 55%; }
+  section { background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 16px; margin: 12px 0; }
+  h2 { font-size: 15px; margin: 0 0 10px; color: var(--muted); font-weight: 600; text-transform: uppercase; letter-spacing: .04em; }
+  .row { display: flex; gap: 8px; }
+  input[type=text], textarea { width: 100%; font: inherit; color: inherit; background: var(--bg);
+         border: 1px solid var(--line); border-radius: 10px; padding: 11px 12px; }
+  textarea { resize: vertical; min-height: 70px; }
+  button { font: inherit; border: 0; border-radius: 10px; padding: 11px 14px; cursor: pointer; white-space: nowrap; }
+  .secondary { background: var(--chip); color: var(--text); border: 1px solid var(--line); }
+  #send { width: 100%; background: var(--red); color: #fff; font-size: 20px; font-weight: 800;
+          letter-spacing: .05em; padding: 20px; margin-top: 12px; border-radius: 14px; }
+  #send:disabled, #stop:disabled { opacity: .5; }
+  #stop { width: 100%; margin-top: 8px; }
+  ul { list-style: none; margin: 0; padding: 0; }
+  li { display: flex; align-items: center; gap: 10px; padding: 9px 0; border-bottom: 1px solid var(--line); }
+  li:last-child { border-bottom: 0; }
+  li label { flex: 1; display: flex; gap: 10px; align-items: center; }
+  li input { width: 22px; height: 22px; accent-color: var(--red); }
+  .x { background: none; color: var(--muted); padding: 4px 8px; }
+  .empty { color: var(--muted); font-size: 14px; }
+  #codebox { display: none; margin-top: 12px; text-align: center; }
+  #code { font: 700 clamp(18px, 6.2vw, 26px)/1.2 ui-monospace, Menlo, monospace; letter-spacing: .03em; margin: 6px 0; white-space: nowrap;
+          user-select: all; -webkit-user-select: all; }
+  .hint { color: var(--muted); font-size: 13px; }
+  #status { margin-top: 12px; font-size: 15px; white-space: pre-wrap; }
+  .good { color: var(--ok); } .bad { color: var(--red); }
+  .tools { display: flex; justify-content: space-between; margin-bottom: 6px; }
+  .link { background: none; color: var(--red); padding: 0; font-size: 14px; }
+</style>
+</head>
+<body>
+<main>
+  <header><h1>🚨 Edith Alert</h1><span id="who"></span></header>
+
+  <section>
+    <h2>Phones</h2>
+    <div class="tools"><span class="hint" id="count"></span><button class="link" id="all">Select all</button></div>
+    <ul id="phones"></ul>
+  </section>
+
+  <section>
+    <h2>Message</h2>
+    <textarea id="message" maxlength="200" placeholder="EMERGENCY ALERT"></textarea>
+    <button id="send">SOUND ALARM</button>
+    <button id="stop" class="secondary">Stop alarm on selected phones</button>
+    <div id="status"></div>
+  </section>
+
+  <section>
+    <h2>Add a phone</h2>
+    <form class="row" id="addform">
+      <input type="text" id="newname" maxlength="40" placeholder="Name, e.g. Sara" autocomplete="off">
+      <button class="secondary" type="submit">Get code</button>
+    </form>
+    <div id="codebox">
+      <div class="hint">Type this into the Edith Alert app on <b id="codename"></b>'s phone:</div>
+      <div id="code"></div>
+      <div class="hint">The same name always gives the same code, so you can come back for it.</div>
+    </div>
+  </section>
+</main>
+
+<script>
+const $ = (id) => document.getElementById(id);
+const KEY = "edith.phones";
+
+function load() {
+  try { return JSON.parse(localStorage.getItem(KEY)) || []; } catch { return []; }
+}
+function save(list) {
+  try { localStorage.setItem(KEY, JSON.stringify(list)); } catch {}
+}
+let phones = load(); // [{ name, on }]
+
+function render() {
+  const ul = $("phones");
+  ul.innerHTML = "";
+  if (!phones.length) {
+    ul.innerHTML = '<li class="empty">No phones yet. Add one below.</li>';
+  }
+  phones.forEach((p, i) => {
+    const li = document.createElement("li");
+    const label = document.createElement("label");
+    const box = document.createElement("input");
+    box.type = "checkbox";
+    box.checked = p.on;
+    box.onchange = () => { p.on = box.checked; save(phones); render(); };
+    label.append(box, document.createTextNode(p.name));
+    const x = document.createElement("button");
+    x.className = "x";
+    x.textContent = "✕";
+    x.title = "Remove from this list (the phone keeps its code)";
+    x.onclick = () => { phones.splice(i, 1); save(phones); render(); };
+    li.append(label, x);
+    ul.append(li);
+  });
+  const n = phones.filter((p) => p.on).length;
+  $("count").textContent = `${n} of ${phones.length} selected`;
+  $("send").disabled = $("stop").disabled = n === 0;
+}
+
+async function api(path, body) {
+  const res = await fetch(path, body ? {
+    method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body),
+  } : {});
+  let data = {};
+  try { data = await res.json(); } catch {}
+  if (!res.ok && !data.sent) throw new Error(data.error || `HTTP ${res.status}`);
+  return data;
+}
+
+function show(text, cls) {
+  $("status").className = cls || "";
+  $("status").textContent = text;
+}
+
+$("all").onclick = () => {
+  const every = phones.every((p) => p.on);
+  phones.forEach((p) => (p.on = !every));
+  save(phones);
+  render();
+};
+
+$("addform").onsubmit = async (e) => {
+  e.preventDefault();
+  const name = $("newname").value.trim();
+  if (!name) return;
+  try {
+    const { name: clean, code } = await api("/api/code", { name });
+    $("codename").textContent = clean;
+    $("code").textContent = code;
+    $("codebox").style.display = "block";
+    if (!phones.some((p) => p.name.toLowerCase() === clean.toLowerCase())) {
+      phones.push({ name: clean, on: true });
+      save(phones);
+      render();
+    }
+    $("newname").value = "";
+  } catch (err) {
+    show("Could not make a code: " + err.message, "bad");
+  }
+};
+
+async function send(type) {
+  const names = phones.filter((p) => p.on).map((p) => p.name);
+  const message = $("message").value.trim();
+  const what = type === "stop" ? "Stop the alarm on" : "Sound the alarm on";
+  if (!confirm(`${what} ${names.length} phone(s)?\n\n${names.join(", ")}`)) return;
+  $("send").disabled = $("stop").disabled = true;
+  show("Sending…");
+  try {
+    const r = await api("/api/send", { type, names, message });
+    let text = r.sent.length ? `✓ Sent to ${r.sent.join(", ")}` : "";
+    if (r.failed.length) text += `\n✗ Failed: ${r.failed.map((f) => `${f.name} (${f.error})`).join("; ")}`;
+    show(text.trim(), r.failed.length ? "bad" : "good");
+  } catch (err) {
+    show("✗ " + err.message, "bad");
+  } finally {
+    render();
+  }
+}
+$("send").onclick = () => send("alert");
+$("stop").onclick = () => send("stop");
+
+api("/api/me").then((d) => ($("who").textContent = d.email)).catch((e) => show("✗ " + e.message, "bad"));
+render();
+</script>
+</body>
+</html>

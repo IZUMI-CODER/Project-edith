@@ -1,0 +1,19 @@
+name = "edith-alert"
+main = "src/index.js"
+compatibility_date = "2025-09-01"
+workers_dev = true
+preview_urls = false
+
+[assets]
+directory = "./public"
+binding = "ASSETS"
+
+[observability]
+enabled = true
+
+# Set these in the Cloudflare dashboard (Worker > Settings > Variables and Secrets)
+# or with `npx wrangler secret put NAME`. See ../README.md.
+#   CODE_SECRET          (secret)  random string; changing it invalidates every phone's code
+#   FCM_SERVICE_ACCOUNT  (secret)  Firebase service-account JSON, pasted whole
+#   ACCESS_TEAM_DOMAIN   (text)    e.g. myteam.cloudflareaccess.com
+#   ACCESS_AUD           (text)    the Access application's "Audience (AUD) tag"

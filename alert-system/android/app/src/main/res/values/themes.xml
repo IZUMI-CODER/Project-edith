@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <style name="AppTheme" parent="android:Theme.Material.Light.NoActionBar">
+        <item name="android:colorAccent">#DC2626</item>
+        <item name="android:colorPrimary">#B91C1C</item>
+        <item name="android:statusBarColor">#B91C1C</item>
+    </style>
+
+    <style name="AlertTheme" parent="android:Theme.Material.NoActionBar.Fullscreen">
+        <item name="android:windowBackground">@color/alert_red</item>
+    </style>
+</resources>

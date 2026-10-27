@@ -1,0 +1,12 @@
+node_modules/
+.wrangler/
+.dev.vars
+google-services.json
+!android/ci/google-services.placeholder.json
+*.jks
+*.keystore
+.gradle/
+build/
+local.properties
+.idea/
+*.iml
