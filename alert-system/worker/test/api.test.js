@@ -51,7 +51,10 @@ test("send pushes a high-priority data message to each phone's topic", async () 
   assert.equal(sara.android.priority, "HIGH");
   assert.equal(sara.data.type, "alert");
   assert.equal(sara.data.message, "Fire drill");
-  assert.equal(sara.data.from, "dev@localhost");
+  assert.equal(sara.data.sender, "dev@localhost");
+  for (const k of Object.keys(sara.data)) {
+    assert.ok(!["from", "notification", "message_type"].includes(k) && !/^(google|gcm)/.test(k), `FCM-reserved key: ${k}`);
+  }
   assert.ok(Object.values(sara.data).every((v) => typeof v === "string"));
 });
 
@@ -92,7 +95,7 @@ test("shared sender password", async () => {
 
   const { sends, fetchImpl } = mockGoogle();
   await handleApi(post("/api/send", { names: ["Sara"] }, { "x-edith-password": "correct horse battery" }), pwEnv, fetchImpl);
-  assert.equal(sends[0].data.from, "Sender");
+  assert.equal(sends[0].data.sender, "Sender");
 
   await assert.rejects(handleApi(new Request("https://e.workers.dev/api/me", { headers: { "x-edith-password": "abc" } }), { ...pwEnv, SEND_PASSWORD: "abc" }),
     (e) => e.status === 500 && /at least 8/.test(e.message));

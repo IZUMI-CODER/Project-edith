@@ -16,7 +16,7 @@ class AlertMessagingService : FirebaseMessagingService() {
             "alert" -> AlarmService.start(
                 this,
                 data["message"].orEmpty().ifBlank { "EMERGENCY ALERT" },
-                data["from"].orEmpty(),
+                data["sender"].orEmpty(),
                 data["sent_at"]?.toLongOrNull() ?: System.currentTimeMillis(),
             )
             "stop" -> AlarmService.stop(this)

@@ -138,7 +138,7 @@ export async function handleApi(request, env, fetchImpl = fetch) {
       type,
       id: crypto.randomUUID(),
       message: type === "alert" ? message : "",
-      from: email,
+      sender: email, // FCM rejects "from" (and google*/gcm* keys) in data payloads
       sent_at: String(Date.now()),
     };
     const result = await sendAll(env, names, data, fetchImpl);
