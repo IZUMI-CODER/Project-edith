@@ -16,6 +16,20 @@ android {
         versionName = "1.0"
     }
 
+    // CI keeps one key in its cache so updates install over the previous APK.
+    // Locally (no ci-signing.keystore) the normal debug key is used.
+    signingConfigs {
+        getByName("debug") {
+            val ciKey = rootProject.file("ci-signing.keystore")
+            if (ciKey.exists()) {
+                storeFile = ciKey
+                storePassword = "edithalert"
+                keyAlias = "edith"
+                keyPassword = "edithalert"
+            }
+        }
+    }
+
     buildTypes {
         release {
             isMinifyEnabled = false

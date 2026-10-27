@@ -30,8 +30,16 @@ jobs:
       # (a fresh runner would otherwise generate a new debug key each time).
       - uses: actions/cache@v4
         with:
-          path: ~/.android/debug.keystore
-          key: edith-alert-debug-keystore-v1
+          path: alert-system/android/ci-signing.keystore
+          key: edith-alert-signing-v2
+
+      - name: Create the signing key (first build only)
+        run: |
+          if [ ! -f ci-signing.keystore ]; then
+            keytool -genkeypair -noprompt -keystore ci-signing.keystore -storepass edithalert \
+              -keypass edithalert -alias edith -keyalg RSA -keysize 2048 -validity 10000 \
+              -dname "CN=Edith Alert"
+          fi
 
       - name: Add Firebase config
         env:
