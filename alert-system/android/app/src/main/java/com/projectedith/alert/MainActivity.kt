@@ -119,6 +119,7 @@ class MainActivity : Activity() {
             .setPositiveButton("Unpair") { _, _ ->
                 Prefs.topic(this)?.let { FirebaseMessaging.getInstance().unsubscribeFromTopic(it) }
                 Prefs.setCode(this, null)
+                ListenerService.stop(this)
                 refresh()
             }
             .setNegativeButton("Cancel", null)
@@ -127,6 +128,7 @@ class MainActivity : Activity() {
 
     private fun refresh() {
         val code = Prefs.code(this)
+        if (code != null) ListenerService.start(this) // idempotent
         status.text = if (code != null) {
             "✅ Paired (${Codes.format(code)}). This phone will ring when an alert is sent to it."
         } else {

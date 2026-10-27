@@ -18,6 +18,7 @@ class AlertMessagingService : FirebaseMessagingService() {
         )
 
         val topic = Prefs.topic(this) ?: return Prefs.recordOutcome(this, "ignored: phone not paired")
+        ListenerService.start(this) // in case the phone stopped it
         // Skip leftovers from a topic this phone used before re-pairing. Only reject a
         // clearly different topic, so an unexpected "from" format can't block real alerts.
         val from = message.from
