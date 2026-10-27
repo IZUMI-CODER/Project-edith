@@ -11,9 +11,9 @@ binding = "ASSETS"
 [observability]
 enabled = true
 
-# Set these in the Cloudflare dashboard (Worker > Settings > Variables and Secrets)
-# or with `npx wrangler secret put NAME`. See ../README.md.
-#   CODE_SECRET          (secret)  random string; changing it invalidates every phone's code
-#   FCM_SERVICE_ACCOUNT  (secret)  Firebase service-account JSON, pasted whole
-#   ACCESS_TEAM_DOMAIN   (text)    e.g. myteam.cloudflareaccess.com
-#   ACCESS_AUD           (text)    the Access application's "Audience (AUD) tag"
+# Set all four with `npx wrangler secret put NAME` (secrets survive redeploys;
+# plain dashboard variables would be wiped by the next `wrangler deploy`). See ../README.md.
+#   CODE_SECRET          random string; changing it invalidates every phone's code
+#   FCM_SERVICE_ACCOUNT  Firebase service-account JSON, piped in whole
+#   ACCESS_TEAM_DOMAIN   e.g. myteam.cloudflareaccess.com
+#   ACCESS_AUD           the Access application's "Audience (AUD) tag"

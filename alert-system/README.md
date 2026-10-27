@@ -58,8 +58,11 @@ Keep `CODE_SECRET` the same from then on: **changing it changes every phone's co
 2. Under **Zero Trust → Access → Applications**, edit that application's policy so that only your senders'
    emails are allowed. They log in with a one-time code sent to their email.
 3. From the application's settings, copy the **Audience (AUD) tag** and your team domain
-   (`<team>.cloudflareaccess.com`). Add them under **Worker → Settings → Variables** as text
-   variables named `ACCESS_AUD` and `ACCESS_TEAM_DOMAIN`.
+   (`<team>.cloudflareaccess.com`), then store them as secrets so redeploys keep them:
+   ```bash
+   npx wrangler secret put ACCESS_TEAM_DOMAIN
+   npx wrangler secret put ACCESS_AUD
+   ```
 
 The Worker refuses to do anything until these are set, and it checks the Access login signature on every
 request itself, so it isn't relying only on the dashboard setting.
