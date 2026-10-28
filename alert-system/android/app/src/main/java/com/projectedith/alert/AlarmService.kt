@@ -140,7 +140,7 @@ class AlarmService : Service() {
     private var focusRequest: AudioFocusRequest? = null
     private var savedVolume: Int? = null
     private var savedFilter: Int? = null
-    private var voicePlayer: MediaPlayer? = null
+    private var voiceClip: VoiceClip? = null
     private var voiceId: String? = null
 
     private var dismissed = false
@@ -152,17 +152,20 @@ class AlarmService : Service() {
      * After Dismiss the chime stops and the voice plays once more in full, then all stops.
      */
     private val playVoice = Runnable {
-        val vp = voicePlayer ?: return@Runnable
-        if (vp.isPlaying) return@Runnable
+        val clip = voiceClip ?: return@Runnable
+        if (clip.isPlaying) return@Runnable
         track?.pause()
         player?.pause()
-        runCatching {
-            vp.seekTo(0)
-            vp.start()
-            if (!voiceNoted) Prefs.appendNote(this, "voice played")
+        if (!voiceNoted) Prefs.appendNote(this, "voice started")
+        clip.play(attrs, voiceGain()) {
+            if (!voiceNoted) Prefs.appendNote(this, "voice finished")
             voiceNoted = true
+            onVoiceFinished()
         }
     }
+
+    /** Speech is far quieter than a steady chime at the same gain: +20 dB over the slider. */
+    private fun voiceGain() = minOf(1f, Sounds.gain(Prefs.volume(this)) * 10f)
 
     private val chimeDone = Runnable {
         voiceDue = true
@@ -188,10 +191,10 @@ class AlarmService : Service() {
         player?.pause()
         vibrator?.cancel()
         onStopped?.invoke() // close the alert screen
-        val vp = voicePlayer
+        val clip = voiceClip
         when {
-            vp != null && vp.isPlaying -> Unit // let it finish, then stop
-            vp != null -> handler.post(playVoice)
+            clip != null && clip.isPlaying -> Unit // let it finish, then stop
+            clip != null -> handler.post(playVoice)
             voiceId != null -> handler.postDelayed(timeout, WAIT_FOR_VOICE_MS) // still downloading
             else -> stopSelf()
         }
@@ -328,29 +331,21 @@ class AlarmService : Service() {
     }
 
     private fun startVoice(file: File) {
-        voicePlayer?.release()
-        voicePlayer = try {
-            MediaPlayer().apply {
-                setAudioAttributes(attrs)
-                setDataSource(file.path)
-                prepare()
-                // Speech is far quieter than a steady chime at the same gain: play it
-                // 20 dB above the chime slider (full volume at the default 50 %).
-                val gain = minOf(1f, Sounds.gain(Prefs.volume(this@AlarmService)) * 10f)
-                setVolume(gain, gain)
-                setOnCompletionListener { onVoiceFinished() }
-            }
+        voiceClip?.cancel()
+        voiceClip = try {
+            VoiceClip.load(file)
         } catch (e: Exception) {
-            Log.w(TAG, "can't play voice message", e)
-            Prefs.appendNote(this, "voice can't play (${e.javaClass.simpleName}: ${e.message})")
+            Log.w(TAG, "can't read voice message", e)
+            Prefs.appendNote(this, "voice can't be read (${e.javaClass.simpleName})")
             null
         }
-        if (voicePlayer == null) {
+        val clip = voiceClip
+        if (clip == null) {
             if (dismissed) stopSelf()
             return
         }
         voiceReady = true
-        Prefs.appendNote(this, "voice ready")
+        Prefs.appendNote(this, "voice ready: ${clip.description}")
         if (voiceDue || dismissed) {
             handler.removeCallbacks(timeout)
             handler.post(playVoice)
@@ -371,8 +366,8 @@ class AlarmService : Service() {
         handler.removeCallbacks(playVoice)
         handler.removeCallbacks(chimeDone)
         dismissed = false
-        voicePlayer?.run { runCatching { stop() }; release() }
-        voicePlayer = null
+        voiceClip?.cancel()
+        voiceClip = null
         voiceId = null
         voiceReady = false
         track?.run { runCatching { stop() }; release() }
