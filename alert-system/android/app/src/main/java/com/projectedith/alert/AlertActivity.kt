@@ -6,6 +6,7 @@ import android.content.Intent
 import android.os.Build
 import android.os.Bundle
 import android.text.format.DateFormat
+import android.view.View
 import android.view.WindowManager
 import android.widget.Button
 import android.widget.TextView
@@ -41,6 +42,7 @@ class AlertActivity : Activity() {
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         setContentView(R.layout.activity_alert)
 
+        findViewById<Button>(R.id.replay).setOnClickListener { AlarmService.replayVoice(this) }
         findViewById<Button>(R.id.dismiss).setOnClickListener {
             AlarmService.stop(this)
             finish()
@@ -70,6 +72,24 @@ class AlertActivity : Activity() {
         val time = DateFormat.getTimeFormat(this).format(Date(info.sentAt))
         findViewById<TextView>(R.id.details).text =
             if (info.from.isBlank()) "Sent at $time" else "From ${info.from} at $time"
+    }
+
+    // Show the replay button once a voice message has arrived.
+    private val voiceCheck = object : Runnable {
+        override fun run() {
+            findViewById<Button>(R.id.replay).visibility = if (AlarmService.voiceReady) View.VISIBLE else View.GONE
+            window.decorView.postDelayed(this, 1000)
+        }
+    }
+
+    override fun onResume() {
+        super.onResume()
+        window.decorView.post(voiceCheck)
+    }
+
+    override fun onPause() {
+        window.decorView.removeCallbacks(voiceCheck)
+        super.onPause()
     }
 
     override fun onDestroy() {

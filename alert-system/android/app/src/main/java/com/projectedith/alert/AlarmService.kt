@@ -38,6 +38,16 @@ class AlarmService : Service() {
         const val ACTION_START = "com.projectedith.alert.START"
         const val ACTION_STOP = "com.projectedith.alert.STOP"
         const val EXTRA_VOICE_ID = "voice_id"
+        const val ACTION_REPLAY_VOICE = "com.projectedith.alert.REPLAY_VOICE"
+
+        /** True once a voice message has downloaded and can be replayed. */
+        @Volatile
+        var voiceReady = false
+            private set
+
+        fun replayVoice(ctx: Context) {
+            runCatching { ctx.startService(Intent(ctx, AlarmService::class.java).setAction(ACTION_REPLAY_VOICE)) }
+        }
         private const val CHIME_BETWEEN_VOICE_MS = 2500L
         private const val MAX_RING_MS = 10 * 60 * 1000L
         private const val TAG = "AlarmService"
@@ -138,6 +148,10 @@ class AlarmService : Service() {
     override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        if (intent?.action == ACTION_REPLAY_VOICE) {
+            if (isRinging) handler.post(playVoice)
+            return START_NOT_STICKY
+        }
         if (intent?.action != ACTION_START) {
             stopSelf()
             return START_NOT_STICKY
@@ -222,7 +236,7 @@ class AlarmService : Service() {
         voiceId = id
         val topic = Prefs.topic(this) ?: return
         val base = BuildConfig.SERVER_URL.trimEnd('/')
-        if (base.isBlank()) return
+        if (base.isBlank()) return Prefs.appendNote(this, "voice: no server address in this build")
         val file = File(cacheDir, "voice-message")
         thread(name = "edith-voice") {
             repeat(3) { attempt ->
@@ -232,10 +246,12 @@ class AlarmService : Service() {
                         check(r.isSuccessful) { "HTTP ${r.code}" }
                         file.outputStream().use { out -> r.body!!.byteStream().copyTo(out) }
                     }
+                    Prefs.appendNote(this, "voice downloaded (${file.length() / 1024} KB)")
                     handler.post { if (voiceId == id && isRinging) startVoice(file) }
                     return@thread
                 } catch (e: Exception) {
                     Log.w(TAG, "voice download attempt ${attempt + 1} failed", e)
+                    if (attempt == 2) Prefs.appendNote(this, "voice download failed (${e.message})")
                     Thread.sleep(2000)
                 }
             }
@@ -259,8 +275,12 @@ class AlarmService : Service() {
             }
         } catch (e: Exception) {
             Log.w(TAG, "can't play voice message", e)
+            Prefs.appendNote(this, "voice can't play (${e.javaClass.simpleName}: ${e.message})")
             null
         }
+        if (voicePlayer == null) return
+        voiceReady = true
+        Prefs.appendNote(this, "voice playing")
         handler.removeCallbacks(playVoice)
         handler.postDelayed(playVoice, 1500) // let the chime announce it first
     }
@@ -279,6 +299,7 @@ class AlarmService : Service() {
         voicePlayer?.run { runCatching { stop() }; release() }
         voicePlayer = null
         voiceId = null
+        voiceReady = false
         track?.run { runCatching { stop() }; release() }
         player?.run { runCatching { stop() }; release() }
         vibrator?.cancel()

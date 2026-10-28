@@ -24,6 +24,15 @@ object Prefs {
         save(ctx, lines)
     }
 
+    /** Adds a detail (e.g. voice message progress) to the newest history line. */
+    @Synchronized
+    fun appendNote(ctx: Context, note: String) {
+        val lines = history(ctx).toMutableList()
+        if (lines.isEmpty()) return
+        lines[0] = lines[0] + " · " + note
+        save(ctx, lines)
+    }
+
     fun history(ctx: Context): List<String> =
         prefs(ctx).getString("history", "").orEmpty().split("\n").filter { it.isNotBlank() }
 
