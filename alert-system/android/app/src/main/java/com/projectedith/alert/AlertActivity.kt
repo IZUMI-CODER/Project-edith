@@ -44,7 +44,7 @@ class AlertActivity : Activity() {
 
         findViewById<Button>(R.id.replay).setOnClickListener { AlarmService.replayVoice(this) }
         findViewById<Button>(R.id.dismiss).setOnClickListener {
-            AlarmService.stop(this)
+            AlarmService.dismiss(this) // a voice message still plays once
             finish()
         }
         AlarmService.onStopped = { runOnUiThread { finish() } }

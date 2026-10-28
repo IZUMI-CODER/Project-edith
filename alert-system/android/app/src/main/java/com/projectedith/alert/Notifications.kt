@@ -51,7 +51,7 @@ object Notifications {
         if (!startAlarm) {
             val stop = PendingIntent.getService(
                 ctx, 3,
-                Intent(ctx, AlarmService::class.java).setAction(AlarmService.ACTION_STOP),
+                Intent(ctx, AlarmService::class.java).setAction(AlarmService.ACTION_DISMISS),
                 PendingIntent.FLAG_IMMUTABLE,
             )
             builder.addAction(
