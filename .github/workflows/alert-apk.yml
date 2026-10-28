@@ -58,7 +58,8 @@ jobs:
       - name: Test and build
         run: |
           chmod +x gradlew
-          ./gradlew --no-daemon testDebugUnitTest assembleDebug
+          # The run number is the app's versionCode, so the in-app updater sees each build as newer.
+          ./gradlew --no-daemon -Pedith.versionCode=$((100 + ${{ github.run_number }})) testDebugUnitTest assembleDebug
 
       - name: Upload APK
         if: env.REAL_FIREBASE == '1'
@@ -73,8 +74,11 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           cp app/build/outputs/apk/debug/app-debug.apk EdithAlert.apk
+          # Read by the app's updater (Updater.kt).
+          printf '{"versionCode": %d, "apk": "https://github.com/%s/releases/latest/download/EdithAlert.apk"}\n' \
+            $((100 + ${{ github.run_number }})) "${{ github.repository }}" > version.json
           gh release delete edith-alert-latest --yes --cleanup-tag || true
-          gh release create edith-alert-latest EdithAlert.apk \
+          gh release create edith-alert-latest EdithAlert.apk version.json \
             --target "$GITHUB_SHA" --latest \
             --title "Edith Alert APK" \
             --notes "Download EdithAlert.apk on the Android phone and tap it to install. Built from ${GITHUB_SHA::7}."

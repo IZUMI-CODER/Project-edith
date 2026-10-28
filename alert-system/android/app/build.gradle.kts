@@ -12,10 +12,13 @@ android {
         applicationId = "com.projectedith.alert"
         minSdk = 26
         targetSdk = 35
-        versionCode = 2
-        versionName = "1.1"
+        // CI passes its run number so every published build is newer than the last.
+        versionCode = (project.findProperty("edith.versionCode") as String?)?.toInt() ?: 2
+        versionName = "1.1.$versionCode"
         // The sender website, for the direct link (set in gradle.properties).
         buildConfigField("String", "SERVER_URL", "\"${project.findProperty("edith.serverUrl") ?: ""}\"")
+        // Where the app looks for updates (version.json published next to the APK).
+        buildConfigField("String", "UPDATE_URL", "\"${project.findProperty("edith.updateUrl") ?: ""}\"")
     }
 
     buildFeatures {

@@ -90,6 +90,13 @@ Every alert goes out two ways, and the phone rings on whichever arrives first:
 The app's address for the direct link is `edith.serverUrl` in `android/gradle.properties`. Change it
 if your site has a different address, then push to rebuild the APK.
 
+## Updates
+The app updates itself from this repo's latest release: it checks every 6 hours, whenever it's opened, or
+when someone taps **Check for updates**. The first self-update asks the person to tap **Update** (and to allow
+"install unknown apps" for Edith Alert). After that, Android 12+ installs updates silently. Every CI build gets a
+higher version number and publishes `version.json` next to the APK. Android only installs an update signed
+with the same key, and CI keeps that key in its cache (`edith-alert-signing-v2`).
+
 ## Good to know
 - **"Sent" means Google accepted the alert**, not that the phone rang. Without a database there are no
   read receipts. Alerts expire after 10 minutes, so a phone that was off doesn't ring hours later.

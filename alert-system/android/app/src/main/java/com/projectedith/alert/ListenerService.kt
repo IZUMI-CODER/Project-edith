@@ -77,6 +77,7 @@ class ListenerService : Service() {
             } else if (socketTopic != Prefs.topic(this@ListenerService)) {
                 connect() // paired with a different code
             }
+            Updater.maybeCheck(this@ListenerService) // no-op unless 6 h have passed
             handler.postDelayed(this, WATCHDOG_MS)
         }
     }

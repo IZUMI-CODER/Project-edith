@@ -53,6 +53,10 @@ object Prefs {
 
     fun setVolume(ctx: Context, percent: Int) = prefs(ctx).edit().putInt("volume", percent).apply()
 
+    fun lastUpdateCheck(ctx: Context): Long = prefs(ctx).getLong("last_update_check", 0L)
+
+    fun setLastUpdateCheck(ctx: Context, at: Long) = prefs(ctx).edit().putLong("last_update_check", at).apply()
+
     fun setCode(ctx: Context, code: String?) {
         prefs(ctx).edit().apply { if (code == null) remove("code") else putString("code", Codes.normalize(code)) }.apply()
     }

@@ -58,6 +58,10 @@ class MainActivity : Activity() {
             open(Intent(Settings.ACTION_NOTIFICATION_POLICY_ACCESS_SETTINGS))
         }
         findViewById<Button>(R.id.battery).setOnClickListener { requestBatteryExemption() }
+        findViewById<Button>(R.id.installPerm).setOnClickListener {
+            open(Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES, Uri.parse("package:$packageName")))
+        }
+        findViewById<Button>(R.id.checkUpdate).setOnClickListener { Updater.maybeCheck(this, force = true) }
         setUpSoundControls()
 
         // Re-assert the subscription on every launch; it is idempotent.
@@ -74,6 +78,7 @@ class MainActivity : Activity() {
     private val ticker = object : Runnable {
         override fun run() {
             showLastReceived() // keeps it live while testing
+            showUpdateStatus()
             handler.postDelayed(this, 2000)
         }
     }
@@ -81,6 +86,7 @@ class MainActivity : Activity() {
     override fun onResume() {
         super.onResume()
         refresh()
+        Updater.maybeCheck(this)
         handler.post(ticker)
     }
 
@@ -155,6 +161,7 @@ class MainActivity : Activity() {
         )
         setItem(R.id.dnd, "Ring during Do Not Disturb", nm.isNotificationPolicyAccessGranted)
         setItem(R.id.battery, "Ignore battery saving", pm.isIgnoringBatteryOptimizations(packageName))
+        setItem(R.id.installPerm, "Let the app update itself", packageManager.canRequestPackageInstalls())
     }
 
     private fun setUpSoundControls() {
@@ -187,6 +194,11 @@ class MainActivity : Activity() {
         findViewById<Button>(R.id.preview).setOnClickListener {
             Sounds.preview(this, Prefs.sound(this), Sounds.gain(Prefs.volume(this)))
         }
+    }
+
+    private fun showUpdateStatus() {
+        findViewById<TextView>(R.id.updateStatus).text =
+            "App version: build ${BuildConfig.VERSION_CODE}" + Updater.status.let { if (it.isBlank()) "" else "\n$it" }
     }
 
     private fun showLastReceived() {

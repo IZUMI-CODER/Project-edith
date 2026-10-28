@@ -85,6 +85,11 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content" />
 
+        <Button
+            android:id="@+id/installPerm"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content" />
+
         <TextView
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
@@ -130,6 +135,19 @@
             android:layout_height="wrap_content"
             android:layout_marginTop="20dp"
             android:text="Test the full alarm" />
+
+        <TextView
+            android:id="@+id/updateStatus"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="20dp"
+            android:textSize="13sp" />
+
+        <Button
+            android:id="@+id/checkUpdate"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="Check for updates" />
 
         <Button
             android:id="@+id/unpair"
