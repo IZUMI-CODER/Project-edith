@@ -14,7 +14,9 @@ object AlertHandler {
         val type = data["type"].orEmpty().ifBlank { "?" }
         val sentAt = data["sent_at"]?.toLongOrNull()
         val sent = sentAt?.let { "sent ${Prefs.clock(it)}, ${(System.currentTimeMillis() - it) / 1000}s late" }
-        val summary = "$type via $via (" + listOfNotNull(sent, detail.ifBlank { null }).joinToString(", ") + ")"
+        val hasVoice = data["voice"] == "1" && id.isNotEmpty()
+        val summary = "$type${if (hasVoice) " + voice" else ""} via $via (" +
+            listOfNotNull(sent, detail.ifBlank { null }).joinToString(", ") + ")"
 
         if (id.isNotEmpty() && !Prefs.markSeen(ctx, id)) {
             Prefs.recordReceived(ctx, summary)
@@ -32,6 +34,7 @@ object AlertHandler {
                     data["message"].orEmpty().ifBlank { "EMERGENCY ALERT" },
                     data["sender"].orEmpty(),
                     sentAt ?: System.currentTimeMillis(),
+                    if (hasVoice) id else null,
                 ),
             )
             "stop" -> {

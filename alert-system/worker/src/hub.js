@@ -1,10 +1,13 @@
 // A single Durable Object holding every phone's direct WebSocket, tagged by its topic.
 // It pings all phones every 30 s so Wi-Fi extenders and NATs that cut "idle"
 // connections never see this one as idle. Uses the hibernation API, so it costs
-// nothing between pings. Nothing is stored except the next ping time.
+// nothing between pings. The only things stored are the next ping time and voice
+// messages, which are deleted 15 minutes after they're sent.
 
 const PING_MS = 30_000;
+const VOICE_TTL_MS = 15 * 60_000;
 const TOPIC_RE = /^edith-[0-9a-f]{64}$/;
+const ID_RE = /^[0-9a-f-]{36}$/;
 
 export class AlertHub {
   constructor(ctx) {
@@ -43,6 +46,26 @@ export class AlertHub {
       return Response.json(connected);
     }
 
+    if (url.pathname === "/voice/put" && request.method === "POST") {
+      const { id, topics, mime, b64 } = await request.json();
+      const data = Uint8Array.from(atob(b64), (c) => c.charCodeAt(0));
+      await this.ctx.storage.put(`voice:${id}`, { mime, topics, at: Date.now(), data });
+      await this.scheduleAlarm();
+      return new Response("ok");
+    }
+
+    if (url.pathname === "/voice/get") {
+      const id = url.searchParams.get("id") || "";
+      const topic = url.searchParams.get("topic") || "";
+      if (!ID_RE.test(id) || !TOPIC_RE.test(topic)) return new Response("bad request", { status: 400 });
+      const voice = await this.ctx.storage.get(`voice:${id}`);
+      // Only phones the message was sent to can fetch it.
+      if (!voice || !voice.topics.includes(topic) || Date.now() - voice.at > VOICE_TTL_MS) {
+        return new Response("not found", { status: 404 });
+      }
+      return new Response(voice.data, { headers: { "content-type": voice.mime, "cache-control": "no-store" } });
+    }
+
     return new Response("not found", { status: 404 });
   }
 
@@ -61,7 +84,13 @@ export class AlertHub {
         // ignore; closed sockets drop out of getWebSockets()
       }
     }
-    if (sockets.length) await this.ctx.storage.setAlarm(Date.now() + PING_MS);
+    const voices = await this.ctx.storage.list({ prefix: "voice:" });
+    let kept = 0;
+    for (const [key, voice] of voices) {
+      if (Date.now() - voice.at > VOICE_TTL_MS) await this.ctx.storage.delete(key);
+      else kept++;
+    }
+    if (sockets.length || kept) await this.ctx.storage.setAlarm(Date.now() + PING_MS);
   }
 
   async webSocketMessage() {
@@ -81,4 +110,8 @@ export class AlertHub {
 
 export function isTopic(s) {
   return TOPIC_RE.test(s);
+}
+
+export function isAlertId(s) {
+  return ID_RE.test(s);
 }

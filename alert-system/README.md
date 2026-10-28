@@ -90,6 +90,12 @@ Every alert goes out two ways, and the phone rings on whichever arrives first:
 The app's address for the direct link is `edith.serverUrl` in `android/gradle.properties`. Change it
 if your site has a different address, then push to rebuild the APK.
 
+## Voice messages
+On the website, tap **🎤 Record voice message** (up to 30 s; works in iPhone Safari), then send. The recording
+waits in the Durable Object for 15 minutes, and only the phones it was sent to can download it. Alerts on both
+routes just carry a "has voice" flag, and the audio never goes through Google. The phone plays the chime, then
+the voice, then the chime again, repeating until Dismiss. Speech plays 10 dB above the phone's alarm-volume slider.
+
 ## Updates
 The app updates itself from this repo's latest release: it checks every 6 hours, whenever it's opened, or
 when someone taps **Check for updates**. The first self-update asks the person to tap **Update** (and to allow

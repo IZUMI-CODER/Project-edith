@@ -22,6 +22,10 @@ import android.os.VibrationEffect
 import android.os.Vibrator
 import android.os.VibratorManager
 import android.util.Log
+import okhttp3.OkHttpClient
+import okhttp3.Request
+import java.io.File
+import kotlin.concurrent.thread
 
 /**
  * Rings until dismissed (or for MAX_RING_MS). Plays on the alarm stream, which the
@@ -33,8 +37,12 @@ class AlarmService : Service() {
     companion object {
         const val ACTION_START = "com.projectedith.alert.START"
         const val ACTION_STOP = "com.projectedith.alert.STOP"
+        const val EXTRA_VOICE_ID = "voice_id"
+        private const val CHIME_BETWEEN_VOICE_MS = 2500L
         private const val MAX_RING_MS = 10 * 60 * 1000L
         private const val TAG = "AlarmService"
+
+        private val http by lazy { OkHttpClient() }
 
         @Volatile
         var isRinging = false
@@ -48,13 +56,14 @@ class AlarmService : Service() {
         var onStopped: (() -> Unit)? = null
 
         /** Starts ringing; returns what happened, for the diagnostics line. */
-        fun start(ctx: Context, message: String, from: String, sentAt: Long): String {
+        fun start(ctx: Context, message: String, from: String, sentAt: Long, voiceId: String? = null): String {
             val info = AlertInfo(message, from, sentAt)
             val intent = Intent(ctx, AlarmService::class.java)
                 .setAction(ACTION_START)
                 .putExtra(AlertActivity.EXTRA_MESSAGE, message)
                 .putExtra(AlertActivity.EXTRA_FROM, from)
                 .putExtra(AlertActivity.EXTRA_SENT_AT, sentAt)
+                .putExtra(EXTRA_VOICE_ID, voiceId)
             val already = isRinging
             try {
                 ctx.startForegroundService(intent)
@@ -113,6 +122,18 @@ class AlarmService : Service() {
     private var focusRequest: AudioFocusRequest? = null
     private var savedVolume: Int? = null
     private var savedFilter: Int? = null
+    private var voicePlayer: MediaPlayer? = null
+    private var voiceId: String? = null
+
+    /** Voice messages alternate with the chime: chime, voice, chime, voice, ... */
+    private val playVoice = Runnable {
+        val vp = voicePlayer ?: return@Runnable
+        track?.pause()
+        runCatching {
+            vp.seekTo(0)
+            vp.start()
+        }
+    }
 
     override fun onBind(intent: Intent?): IBinder? = null
 
@@ -135,6 +156,7 @@ class AlarmService : Service() {
             startForeground(Notifications.ALARM_ID, notification)
         }
         if (!isRinging) startRinging()
+        intent.getStringExtra(EXTRA_VOICE_ID)?.let { if (it != voiceId) loadVoice(it) }
         handler.removeCallbacks(timeout)
         handler.postDelayed(timeout, MAX_RING_MS)
         return START_NOT_STICKY
@@ -195,6 +217,54 @@ class AlarmService : Service() {
             .apply { acquire(MAX_RING_MS + 60_000) }
     }
 
+    /** Downloads the voice message (kept by the website for 15 min) while the chime plays. */
+    private fun loadVoice(id: String) {
+        voiceId = id
+        val topic = Prefs.topic(this) ?: return
+        val base = BuildConfig.SERVER_URL.trimEnd('/')
+        if (base.isBlank()) return
+        val file = File(cacheDir, "voice-message")
+        thread(name = "edith-voice") {
+            repeat(3) { attempt ->
+                try {
+                    val request = Request.Builder().url("$base/api/voice/$id?topic=$topic").build()
+                    http.newCall(request).execute().use { r ->
+                        check(r.isSuccessful) { "HTTP ${r.code}" }
+                        file.outputStream().use { out -> r.body!!.byteStream().copyTo(out) }
+                    }
+                    handler.post { if (voiceId == id && isRinging) startVoice(file) }
+                    return@thread
+                } catch (e: Exception) {
+                    Log.w(TAG, "voice download attempt ${attempt + 1} failed", e)
+                    Thread.sleep(2000)
+                }
+            }
+        }
+    }
+
+    private fun startVoice(file: File) {
+        voicePlayer?.release()
+        voicePlayer = try {
+            MediaPlayer().apply {
+                setAudioAttributes(attrs)
+                setDataSource(file.path)
+                prepare()
+                // Speech needs more level than the chime; +10 dB over the slider, capped.
+                val gain = minOf(1f, Sounds.gain(Prefs.volume(this@AlarmService)) * 3.16f)
+                setVolume(gain, gain)
+                setOnCompletionListener {
+                    track?.play()
+                    handler.postDelayed(playVoice, CHIME_BETWEEN_VOICE_MS)
+                }
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "can't play voice message", e)
+            null
+        }
+        handler.removeCallbacks(playVoice)
+        handler.postDelayed(playVoice, 1500) // let the chime announce it first
+    }
+
     private fun alarmsBlockedByDnd(nm: NotificationManager): Boolean = when (nm.currentInterruptionFilter) {
         NotificationManager.INTERRUPTION_FILTER_NONE -> true
         NotificationManager.INTERRUPTION_FILTER_PRIORITY ->
@@ -205,6 +275,10 @@ class AlarmService : Service() {
 
     override fun onDestroy() {
         handler.removeCallbacks(timeout)
+        handler.removeCallbacks(playVoice)
+        voicePlayer?.run { runCatching { stop() }; release() }
+        voicePlayer = null
+        voiceId = null
         track?.run { runCatching { stop() }; release() }
         player?.run { runCatching { stop() }; release() }
         vibrator?.cancel()

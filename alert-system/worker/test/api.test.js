@@ -1,6 +1,6 @@
 import { test, beforeEach } from "node:test";
 import assert from "node:assert/strict";
-import { handleApi, handleListen, HttpError } from "../src/index.js";
+import { handleApi, handleListen, handleVoice, HttpError } from "../src/index.js";
 import { codeForName, topicForCode } from "../src/codes.js";
 import { _resetTokenCache } from "../src/fcm.js";
 import { rsaKeyPair, pkcs8Pem } from "./helpers.js";
@@ -114,6 +114,14 @@ function mockHub(connectedTopics) {
     idFromName: (n) => n,
     get: () => ({
       fetch: async (url, init) => {
+        if (typeof url === "string" && url.endsWith("/voice/put")) {
+          calls.push({ voicePut: JSON.parse(init.body) });
+          return new Response("ok");
+        }
+        if (typeof url === "string" && url.includes("/voice/get")) {
+          calls.push({ voiceGet: url });
+          return new Response("audio-bytes", { headers: { "content-type": "audio/mp4" } });
+        }
         if (typeof url === "string" && url.endsWith("/broadcast")) {
           const { topics, data } = JSON.parse(init.body);
           calls.push({ topics, data });
@@ -149,4 +157,44 @@ test("listen endpoint validates before handing the socket to the hub", async () 
   assert.equal((await handleListen(new Request(`https://e/api/listen?topic=${topic}`, { headers: { upgrade: "websocket" } }), {})).status, 503);
   assert.equal(await (await ws(`topic=${topic}`)).text(), "upgraded");
   assert.match(HUB.calls[0].listen, new RegExp(`/listen\\?topic=${topic}$`));
+});
+
+test("voice messages are stored in the hub and flagged on both routes", async () => {
+  const sara = await topicForCode(await codeForName(env.CODE_SECRET, "Sara"));
+  const HUB = mockHub([sara]);
+  const { sends, fetchImpl } = mockGoogle();
+  const voice = { mime: "audio/mp4;codecs=mp4a", data: Buffer.from("fake audio").toString("base64") };
+  await handleApi(post("/api/send", { names: ["Sara"], voice }), { ...env, HUB }, fetchImpl);
+  const put = HUB.calls.find((c) => c.voicePut).voicePut;
+  assert.equal(put.mime, "audio/mp4");
+  assert.deepEqual(put.topics, [sara]);
+  const broadcast = HUB.calls.find((c) => c.data).data;
+  assert.equal(broadcast.voice, "1");
+  assert.equal(put.id, broadcast.id);
+  assert.equal(sends[0].data.voice, "1");
+});
+
+test("voice messages are validated", async () => {
+  const HUB = mockHub([]);
+  const bad = (voice, status) => assert.rejects(
+    handleApi(post("/api/send", { names: ["Sara"], voice }), { ...env, HUB }, mockGoogle().fetchImpl),
+    (e) => e.status === status,
+  );
+  await bad({ mime: "text/html", data: "AAAA" }, 400);
+  await bad({ mime: "audio/mp4", data: "<script>" }, 400);
+  await bad({ mime: "audio/mp4", data: "A".repeat(2_100_000) }, 400);
+  await assert.rejects(handleApi(post("/api/send", { names: ["Sara"], voice: { mime: "audio/mp4", data: "AAAA" } }), env, mockGoogle().fetchImpl),
+    (e) => e.status === 503);
+});
+
+test("voice download endpoint validates id and topic", async () => {
+  const HUB = mockHub([]);
+  const topic = await topicForCode(await codeForName(env.CODE_SECRET, "Sara"));
+  const id = "123e4567-e89b-12d3-a456-426614174000";
+  const get = (path) => handleVoice(new Request(`https://e.workers.dev${path}`), { HUB });
+  assert.equal((await get(`/api/voice/not-an-id?topic=${topic}`)).status, 400);
+  assert.equal((await get(`/api/voice/${id}?topic=nope`)).status, 400);
+  const ok = await get(`/api/voice/${id}?topic=${topic}`);
+  assert.equal(await ok.text(), "audio-bytes");
+  assert.match(HUB.calls[0].voiceGet, new RegExp(`id=${id}&topic=${topic}$`));
 });

@@ -75,6 +75,14 @@
   <section>
     <h2>Message</h2>
     <textarea id="message" maxlength="200" placeholder="EMERGENCY ALERT"></textarea>
+    <div class="row" style="margin-top:8px;align-items:center">
+      <button class="secondary" id="rec" type="button">🎤 Record voice message</button>
+      <span class="hint" id="recInfo"></span>
+    </div>
+    <div id="voiceBox" class="row" style="display:none;margin-top:8px;align-items:center">
+      <audio id="voicePlay" controls style="flex:1;min-width:0;height:40px"></audio>
+      <button class="x" id="voiceDel" type="button" title="Delete voice message">✕</button>
+    </div>
     <button id="send">SOUND ALARM</button>
     <button id="stop" class="secondary">Stop alarm on selected phones</button>
     <div id="status"></div>
@@ -203,15 +211,64 @@ $("addform").onsubmit = async (e) => {
   }
 };
 
+// Voice message: recorded in the browser (iPhone Safari gives audio/mp4, Chrome audio/webm),
+// sent with the alert, played on the phone between chimes.
+const MAX_VOICE_SEC = 30;
+let voice = null; // { mime, data (base64) }
+let recorder = null;
+let recTimer = null;
+
+$("rec").onclick = async () => {
+  if (recorder && recorder.state === "recording") return recorder.stop();
+  let stream;
+  try {
+    stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+  } catch {
+    return show("✗ Microphone not allowed. Allow it for this site in the browser settings.", "bad");
+  }
+  const chunks = [];
+  recorder = new MediaRecorder(stream);
+  recorder.ondataavailable = (e) => e.data.size && chunks.push(e.data);
+  recorder.onstop = () => {
+    clearInterval(recTimer);
+    stream.getTracks().forEach((t) => t.stop());
+    $("rec").textContent = "🎤 Record again";
+    $("recInfo").textContent = "";
+    const blob = new Blob(chunks, { type: recorder.mimeType || "audio/mp4" });
+    const reader = new FileReader();
+    reader.onload = () => {
+      voice = { mime: blob.type, data: String(reader.result).split(",")[1] };
+      $("voicePlay").src = URL.createObjectURL(blob);
+      $("voiceBox").style.display = "flex";
+    };
+    reader.readAsDataURL(blob);
+  };
+  recorder.start();
+  const started = Date.now();
+  $("rec").textContent = "■ Stop recording";
+  recTimer = setInterval(() => {
+    const sec = Math.floor((Date.now() - started) / 1000);
+    $("recInfo").textContent = `0:${String(sec).padStart(2, "0")} / 0:${MAX_VOICE_SEC}`;
+    if (sec >= MAX_VOICE_SEC) recorder.stop();
+  }, 250);
+};
+
+$("voiceDel").onclick = () => {
+  voice = null;
+  $("voicePlay").removeAttribute("src");
+  $("voiceBox").style.display = "none";
+  $("rec").textContent = "🎤 Record voice message";
+};
+
 async function send(type) {
   const names = phones.filter((p) => p.on).map((p) => p.name);
   const message = $("message").value.trim();
-  const what = type === "stop" ? "Stop the alarm on" : "Sound the alarm on";
+  const what = type === "stop" ? "Stop the alarm on" : voice ? "Sound the alarm with your voice message on" : "Sound the alarm on";
   if (!confirm(`${what} ${names.length} phone(s)?\n\n${names.join(", ")}`)) return;
   $("send").disabled = $("stop").disabled = true;
   show("Sending…");
   try {
-    const r = await api("/api/send", { type, names, message });
+    const r = await api("/api/send", { type, names, message, voice: type === "alert" ? voice : null });
     let text = r.sent.length ? `✓ Sent to ${r.sent.join(", ")}` : "";
     const online = r.online || [];
     const offline = r.sent.filter((n) => !online.includes(n));
@@ -219,6 +276,10 @@ async function send(type) {
     if (offline.length) text += `\n⏳ Not connected right now (sent via Google, may be late): ${offline.join(", ")}`;
     if (r.failed.length) text += `\n✗ Failed: ${r.failed.map((f) => `${f.name} (${f.error})`).join("; ")}`;
     show(text.trim(), r.failed.length ? "bad" : "good");
+    if (type === "alert" && r.sent.length && voice) {
+      $("voiceDel").click(); // don't attach it to the next alert by accident
+      show($("status").textContent + "\n🎤 Voice message included", r.failed.length ? "bad" : "good");
+    }
   } catch (err) {
     show("✗ " + err.message, "bad");
   } finally {

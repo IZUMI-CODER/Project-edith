@@ -1,11 +1,12 @@
 import { codeForName, formatCode, normalizeName, topicForCode } from "./codes.js";
 import { parseServiceAccount, sendToTopic } from "./fcm.js";
 import { verifyAccessJwt } from "./access.js";
-import { AlertHub, isTopic } from "./hub.js";
+import { AlertHub, isAlertId, isTopic } from "./hub.js";
 
 export { AlertHub };
 
 const MAX_MESSAGE = 200;
+const MAX_VOICE_BYTES = 1_500_000; // about 30 s; Durable Object values top out at 2 MB
 const MAX_TARGETS = 50;
 
 function json(body, status = 200) {
@@ -94,7 +95,7 @@ function cleanNames(names) {
   return [...unique.values()];
 }
 
-async function sendAll(env, names, data, fetchImpl) {
+async function sendAll(env, names, data, fetchImpl, voice = null) {
   const secret = requireSecret(env);
   if (!env.FCM_SERVICE_ACCOUNT) throw new HttpError(500, "FCM_SERVICE_ACCOUNT is not set.");
   let sa;
@@ -104,6 +105,18 @@ async function sendAll(env, names, data, fetchImpl) {
     throw new HttpError(500, e.message);
   }
   const topics = await Promise.all(names.map(async (name) => topicForCode(await codeForName(secret, name))));
+
+  // A voice message waits in the hub; both routes just say "there's a voice message".
+  if (voice) {
+    if (!env.HUB) throw new HttpError(503, "voice messages need the direct link (HUB) deployed");
+    const hub = env.HUB.get(env.HUB.idFromName("hub"));
+    const res = await hub.fetch("https://hub/voice/put", {
+      method: "POST",
+      body: JSON.stringify({ id: data.id, topics, mime: voice.mime, b64: voice.b64 }),
+    });
+    if (!res.ok) throw new HttpError(502, "could not store the voice message");
+    data.voice = "1";
+  }
 
   // Route 1: straight down each phone's own connection to this site (see hub.js).
   let connected = {};
@@ -135,6 +148,16 @@ async function sendAll(env, names, data, fetchImpl) {
   return { sent, failed, online };
 }
 
+function cleanVoice(voice) {
+  if (!voice) return null;
+  const mime = String(voice.mime || "").split(";")[0].trim();
+  const b64 = String(voice.data || "");
+  if (!/^audio\/[a-z0-9.+-]+$/.test(mime)) throw new HttpError(400, "voice message must be audio");
+  if (!/^[A-Za-z0-9+/]+=*$/.test(b64)) throw new HttpError(400, "voice message is not valid base64");
+  if (b64.length * 0.75 > MAX_VOICE_BYTES) throw new HttpError(400, "voice message is too long (30 seconds max)");
+  return { mime, b64 };
+}
+
 export async function handleApi(request, env, fetchImpl = fetch) {
   const { pathname } = new URL(request.url);
   const email = await authenticate(request, env, fetchImpl);
@@ -163,7 +186,8 @@ export async function handleApi(request, env, fetchImpl = fetch) {
       sender: email, // FCM rejects "from" (and google*/gcm* keys) in data payloads
       sent_at: String(Date.now()),
     };
-    const result = await sendAll(env, names, data, fetchImpl);
+    const voice = type === "alert" ? cleanVoice(body.voice) : null;
+    const result = await sendAll(env, names, data, fetchImpl, voice);
     console.log(JSON.stringify({
       event: type, from: email, sent: result.sent.length, online: result.online.length, failed: result.failed.length,
     }));
@@ -184,10 +208,23 @@ export function handleListen(request, env) {
   return hub.fetch(new Request(`https://hub/listen?topic=${topic}`, request));
 }
 
+// Phones download a voice message here (the alert carries its id). Only phones the
+// message was sent to can fetch it, and it is gone 15 minutes after sending.
+export function handleVoice(request, env) {
+  const url = new URL(request.url);
+  const id = url.pathname.slice("/api/voice/".length);
+  const topic = url.searchParams.get("topic") || "";
+  if (!isAlertId(id) || !isTopic(topic)) return new Response("bad request", { status: 400 });
+  if (!env.HUB) return new Response("not found", { status: 404 });
+  const hub = env.HUB.get(env.HUB.idFromName("hub"));
+  return hub.fetch(`https://hub/voice/get?id=${id}&topic=${topic}`);
+}
+
 export default {
   async fetch(request, env) {
     const { pathname } = new URL(request.url);
     if (pathname === "/api/listen") return handleListen(request, env);
+    if (pathname.startsWith("/api/voice/") && request.method === "GET") return handleVoice(request, env);
     if (!pathname.startsWith("/api/")) return env.ASSETS.fetch(request);
     try {
       return await handleApi(request, env);
