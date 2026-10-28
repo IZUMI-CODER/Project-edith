@@ -132,7 +132,7 @@ class VoiceClip private constructor(
                 prepare()
                 setVolume(gain, gain)
                 setOnCompletionListener {
-                    isPlaying = false
+                    this@VoiceClip.isPlaying = false
                     if (!cancelled) onDone()
                 }
                 start()
